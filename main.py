@@ -50,55 +50,32 @@ def step_1_select_sites(n_sites: int = NUM_SITES, force: bool = False) -> None:
     return sites_df
 
 
-def step_2_fetch_resource_data(sites_df, use_api: bool = False,
+def step_2_fetch_resource_data(sites_df, api_source: str = 'nasa_power',
                                 max_sites: int = None, force: bool = False) -> None:
-    """Step 2: Fetch renewable resource data for each site."""
+    """Step 2: Fetch renewable resource data from external API for each site."""
     print("\n" + "="*60)
-    print("STEP 2: Fetch Renewable Resource Data")
+    print("STEP 2: Fetch Renewable Resource Data from API")
     print("="*60)
 
     # Check how many sites already have data
     existing_count = sum(1 for f in RESOURCE_DIR.glob("site_*.parquet"))
 
-    if existing_count >= len(sites_df) and not force:
-        print(f"Resource data already exists for {existing_count} sites")
+    if max_sites:
+        target_sites = min(max_sites, len(sites_df))
+    else:
+        target_sites = len(sites_df)
+
+    if existing_count >= target_sites and not force:
+        print(f"Resource data already exists for {existing_count} sites (target: {target_sites})")
         return
 
-    if use_api:
-        print("Using Renewables.ninja API (requires token)")
-        fetch_all_sites(sites_df, use_api=True, max_sites=max_sites)
-    else:
-        print("Using synthetic data generation (no API required)")
+    print(f"Using {api_source} API to fetch renewable resource data...")
+    print(f"  API: {api_source}")
+    print(f"  Sites to fetch: {target_sites}")
+    print(f"  This will make {target_sites * 2} API calls (solar + wind per site)")
 
-        if max_sites:
-            sites_df = sites_df.head(max_sites)
-
-        gen = SyntheticDataGenerator(seed=42)
-
-        from tqdm import tqdm
-        for _, row in tqdm(sites_df.iterrows(), total=len(sites_df), desc="Generating resource data"):
-            site_id = int(row['site_id'])
-            lat = row['lat_deg']
-            lon = row['lon_deg']
-
-            # Check if already exists
-            cache_path = RESOURCE_DIR / f"site_{site_id:03d}.parquet"
-            if cache_path.exists() and not force:
-                continue
-
-            # Generate synthetic data
-            solar_cf, wind_cf = gen.generate_both_profiles(lat, lon)
-
-            import pandas as pd
-            df = pd.DataFrame({
-                'hour': range(8760),
-                'cf_solar': solar_cf.values,
-                'cf_wind': wind_cf.values
-            })
-
-            df.to_parquet(cache_path, index=False)
-
-        print(f"Generated resource data for {len(sites_df)} sites")
+    fetch_all_sites(sites_df.head(target_sites) if max_sites else sites_df,
+                   api_source=api_source)
 
 
 def step_3_generate_configurations(force: bool = False):
@@ -200,7 +177,7 @@ def step_5_save_and_analyze(summary_df, sites_df):
 def run_full_pipeline(
     n_sites: int = NUM_SITES,
     n_workers: int = NUM_WORKERS,
-    use_api: bool = False,
+    api_source: str = 'nasa_power',
     save_hourly: bool = SAVE_HOURLY_DATA,
     max_sites: int = None,
     max_configs: int = None,
@@ -212,7 +189,7 @@ def run_full_pipeline(
     Args:
         n_sites: Number of sites to select
         n_workers: Number of parallel workers
-        use_api: Use Renewables.ninja API (requires token)
+        api_source: API source - 'nasa_power', 'renewables_ninja', or 'synthetic'
         save_hourly: Save hourly timeseries data
         max_sites: Limit number of sites (for testing)
         max_configs: Limit number of configs (for testing)
@@ -224,7 +201,7 @@ def run_full_pipeline(
     print(f"Configuration:")
     print(f"  Target sites: {n_sites}")
     print(f"  Workers: {n_workers}")
-    print(f"  Use API: {use_api}")
+    print(f"  API source: {api_source}")
     print(f"  Save hourly data: {save_hourly}")
     if max_sites:
         print(f"  Max sites (test mode): {max_sites}")
@@ -236,8 +213,8 @@ def run_full_pipeline(
     # Step 1: Site selection
     sites_df = step_1_select_sites(n_sites, force=force)
 
-    # Step 2: Resource data
-    step_2_fetch_resource_data(sites_df, use_api=use_api, max_sites=max_sites, force=force)
+    # Step 2: Resource data from API
+    step_2_fetch_resource_data(sites_df, api_source=api_source, max_sites=max_sites, force=force)
 
     # Step 3: Configurations
     configs_df = step_3_generate_configurations(force=force)
@@ -278,8 +255,9 @@ def main():
         help=f'Number of parallel workers (default: {NUM_WORKERS})'
     )
     parser.add_argument(
-        '--use-api', action='store_true',
-        help='Use Renewables.ninja API (requires RENEWABLES_NINJA_TOKEN env var)'
+        '--api-source', type=str, default='nasa_power',
+        choices=['nasa_power', 'renewables_ninja', 'synthetic'],
+        help='API source for renewable data (default: nasa_power)'
     )
     parser.add_argument(
         '--no-hourly', action='store_true',
@@ -299,22 +277,22 @@ def main():
     )
     parser.add_argument(
         '--test', action='store_true',
-        help='Run in test mode (10 sites, 10 configs)'
+        help='Run in test mode (3 sites, 10 configs, uses NASA POWER API)'
     )
 
     args = parser.parse_args()
 
     # Test mode overrides
     if args.test:
-        args.max_sites = 10
+        args.max_sites = 3
         args.max_configs = 10
         args.workers = 1
-        print("Running in TEST MODE (10 sites, 10 configs, 1 worker)")
+        print("Running in TEST MODE (3 sites, 10 configs, NASA POWER API)")
 
     run_full_pipeline(
         n_sites=args.sites,
         n_workers=args.workers,
-        use_api=args.use_api,
+        api_source=args.api_source,
         save_hourly=not args.no_hourly,
         max_sites=args.max_sites,
         max_configs=args.max_configs,

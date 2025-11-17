@@ -188,6 +188,178 @@ class RenewablesNinjaClient:
         return solar_cf, wind_cf
 
 
+class NASAPowerClient:
+    """Client for NASA POWER API (no authentication required)."""
+
+    def __init__(self):
+        """Initialize the NASA POWER API client."""
+        self.base_url = "https://power.larc.nasa.gov/api/temporal/hourly/point"
+        self.session = requests.Session()
+        self.last_request_time = 0
+
+    def _rate_limit(self):
+        """Enforce rate limiting between API calls."""
+        elapsed = time.time() - self.last_request_time
+        if elapsed < API_RATE_LIMIT_DELAY:
+            time.sleep(API_RATE_LIMIT_DELAY - elapsed)
+        self.last_request_time = time.time()
+
+    def _make_request(self, params: dict) -> dict:
+        """Make API request with retry logic."""
+        self._rate_limit()
+
+        for attempt in range(API_MAX_RETRIES):
+            try:
+                response = self.session.get(self.base_url, params=params, timeout=120)
+
+                if response.status_code == 200:
+                    return response.json()
+                else:
+                    if attempt < API_MAX_RETRIES - 1:
+                        wait_time = API_RETRY_DELAY * (2 ** attempt)
+                        print(f"Request failed (status {response.status_code}), retrying in {wait_time}s...")
+                        time.sleep(wait_time)
+                    else:
+                        response.raise_for_status()
+
+            except requests.exceptions.RequestException as e:
+                if attempt < API_MAX_RETRIES - 1:
+                    wait_time = API_RETRY_DELAY * (2 ** attempt)
+                    print(f"Request failed, retrying in {wait_time}s... ({e})")
+                    time.sleep(wait_time)
+                else:
+                    raise
+
+        raise RuntimeError(f"Failed after {API_MAX_RETRIES} attempts")
+
+    def fetch_solar_profile(self, lat: float, lon: float, year: int = SIMULATION_YEAR) -> pd.Series:
+        """
+        Fetch hourly solar irradiance and convert to capacity factor.
+
+        Uses Global Horizontal Irradiance (GHI) from NASA POWER.
+        """
+        params = {
+            'start': f'{year}0101',
+            'end': f'{year}1231',
+            'latitude': lat,
+            'longitude': lon,
+            'community': 'RE',  # Renewable Energy
+            'parameters': 'ALLSKY_SFC_SW_DWN',  # GHI in kW/m²
+            'format': 'JSON',
+            'time-standard': 'UTC'
+        }
+
+        data = self._make_request(params)
+
+        # Extract hourly GHI values
+        ghi_data = data['properties']['parameter']['ALLSKY_SFC_SW_DWN']
+
+        # Convert to hourly series
+        hours = []
+        ghi_values = []
+
+        for date_hour, value in ghi_data.items():
+            hours.append(date_hour)
+            ghi_values.append(value if value != -999 else 0)  # -999 is missing data
+
+        # Convert GHI to capacity factor
+        # NASA POWER returns GHI in W/m² (NOT kW/m²)
+        # Standard Test Conditions (STC) for PV: 1000 W/m² = 1 kW/m²
+        # Capacity factor = (GHI / STC) * Performance_Ratio
+        # Performance ratio accounts for temperature, inverter, wiring, dust losses (~80%)
+        ghi_array = np.array(ghi_values)
+
+        # Convert W/m² to capacity factor
+        # STC = 1000 W/m²
+        # Performance ratio = 0.80 (accounting for system losses)
+        stc_irradiance = 1000.0  # W/m²
+        performance_ratio = 0.80
+
+        # CF = (GHI / STC) * PR
+        # Peak GHI of 1000 W/m² gives CF of 0.80
+        cf_values = (ghi_array / stc_irradiance) * performance_ratio
+
+        # Clip to [0, 1]
+        cf_values = np.clip(cf_values, 0, 1)
+
+        # Ensure 8760 hours (may need padding for leap years)
+        if len(cf_values) > HOURS_PER_YEAR:
+            cf_values = cf_values[:HOURS_PER_YEAR]
+        elif len(cf_values) < HOURS_PER_YEAR:
+            # Pad with zeros if needed
+            cf_values = np.pad(cf_values, (0, HOURS_PER_YEAR - len(cf_values)))
+
+        time_index = pd.date_range(start=f'{year}-01-01', periods=HOURS_PER_YEAR, freq='h')
+        return pd.Series(cf_values, index=time_index, name='electricity')
+
+    def fetch_wind_profile(self, lat: float, lon: float, year: int = SIMULATION_YEAR) -> pd.Series:
+        """
+        Fetch hourly wind speed and convert to capacity factor.
+
+        Uses wind speed at 50m from NASA POWER, scaled to hub height.
+        """
+        params = {
+            'start': f'{year}0101',
+            'end': f'{year}1231',
+            'latitude': lat,
+            'longitude': lon,
+            'community': 'RE',
+            'parameters': 'WS50M',  # Wind speed at 50m in m/s
+            'format': 'JSON',
+            'time-standard': 'UTC'
+        }
+
+        data = self._make_request(params)
+
+        # Extract hourly wind speed values
+        ws_data = data['properties']['parameter']['WS50M']
+
+        ws_values = []
+        for date_hour, value in ws_data.items():
+            ws_values.append(value if value != -999 else 0)
+
+        ws_array = np.array(ws_values)
+
+        # Scale wind speed from 50m to 100m hub height using power law
+        # v2/v1 = (h2/h1)^alpha, alpha ≈ 0.14 for open terrain
+        ws_100m = ws_array * (100 / 50) ** 0.14
+
+        # Convert wind speed to capacity factor using typical power curve
+        # Cut-in: 3 m/s, Rated: 12 m/s, Cut-out: 25 m/s
+        cf_values = np.zeros_like(ws_100m)
+
+        # Below cut-in
+        mask_low = ws_100m < 3
+        cf_values[mask_low] = 0
+
+        # Cubic region (3-12 m/s)
+        mask_cubic = (ws_100m >= 3) & (ws_100m < 12)
+        cf_values[mask_cubic] = ((ws_100m[mask_cubic] - 3) / (12 - 3)) ** 3
+
+        # Rated power (12-25 m/s)
+        mask_rated = (ws_100m >= 12) & (ws_100m <= 25)
+        cf_values[mask_rated] = 1.0
+
+        # Above cut-out
+        mask_high = ws_100m > 25
+        cf_values[mask_high] = 0
+
+        # Ensure 8760 hours
+        if len(cf_values) > HOURS_PER_YEAR:
+            cf_values = cf_values[:HOURS_PER_YEAR]
+        elif len(cf_values) < HOURS_PER_YEAR:
+            cf_values = np.pad(cf_values, (0, HOURS_PER_YEAR - len(cf_values)))
+
+        time_index = pd.date_range(start=f'{year}-01-01', periods=HOURS_PER_YEAR, freq='h')
+        return pd.Series(cf_values, index=time_index, name='electricity')
+
+    def fetch_both_profiles(self, lat: float, lon: float, year: int = SIMULATION_YEAR) -> Tuple[pd.Series, pd.Series]:
+        """Fetch both solar and wind profiles."""
+        solar_cf = self.fetch_solar_profile(lat, lon, year)
+        wind_cf = self.fetch_wind_profile(lat, lon, year)
+        return solar_cf, wind_cf
+
+
 class SyntheticDataGenerator:
     """
     Generate synthetic renewable profiles when API is unavailable.
@@ -329,15 +501,15 @@ class SyntheticDataGenerator:
 
 
 def fetch_site_data(site_id: int, lat: float, lon: float,
-                   use_api: bool = True, cache: bool = True) -> pd.DataFrame:
+                   api_source: str = 'nasa_power', cache: bool = True) -> pd.DataFrame:
     """
-    Fetch renewable data for a single site.
+    Fetch renewable data for a single site from external API.
 
     Args:
         site_id: Site identifier
         lat: Latitude
         lon: Longitude
-        use_api: If True, use Renewables.ninja API; else use synthetic data
+        api_source: API to use - 'nasa_power', 'renewables_ninja', or 'synthetic'
         cache: If True, cache results locally
 
     Returns:
@@ -350,21 +522,35 @@ def fetch_site_data(site_id: int, lat: float, lon: float,
         print(f"Loading cached data for site {site_id}")
         return pd.read_parquet(cache_path)
 
-    # Fetch data
-    print(f"Fetching data for site {site_id} (lat={lat:.2f}, lon={lon:.2f})...")
+    # Fetch data from API
+    print(f"Fetching data for site {site_id} (lat={lat:.2f}, lon={lon:.2f}) from {api_source}...")
 
-    if use_api and RENEWABLES_NINJA_TOKEN:
+    if api_source == 'nasa_power':
+        try:
+            client = NASAPowerClient()
+            solar_cf, wind_cf = client.fetch_both_profiles(lat, lon)
+        except Exception as e:
+            print(f"NASA POWER API failed: {e}. Falling back to synthetic data.")
+            generator = SyntheticDataGenerator(seed=site_id)
+            solar_cf, wind_cf = generator.generate_both_profiles(lat, lon)
+
+    elif api_source == 'renewables_ninja':
+        if not RENEWABLES_NINJA_TOKEN:
+            raise ValueError("RENEWABLES_NINJA_TOKEN environment variable not set")
         try:
             client = RenewablesNinjaClient()
             solar_cf, wind_cf = client.fetch_both_profiles(lat, lon)
         except Exception as e:
-            print(f"API request failed: {e}. Using synthetic data.")
+            print(f"Renewables.ninja API failed: {e}. Falling back to synthetic data.")
             generator = SyntheticDataGenerator(seed=site_id)
             solar_cf, wind_cf = generator.generate_both_profiles(lat, lon)
-    else:
-        print("No API token provided. Using synthetic data.")
+
+    elif api_source == 'synthetic':
         generator = SyntheticDataGenerator(seed=site_id)
         solar_cf, wind_cf = generator.generate_both_profiles(lat, lon)
+
+    else:
+        raise ValueError(f"Unknown API source: {api_source}")
 
     # Create DataFrame
     df = pd.DataFrame({
@@ -381,14 +567,14 @@ def fetch_site_data(site_id: int, lat: float, lon: float,
     return df
 
 
-def fetch_all_sites(sites_df: pd.DataFrame, use_api: bool = True,
+def fetch_all_sites(sites_df: pd.DataFrame, api_source: str = 'nasa_power',
                    max_sites: int = None) -> dict:
     """
-    Fetch renewable data for all sites.
+    Fetch renewable data for all sites from external API.
 
     Args:
         sites_df: DataFrame with site_id, lat_deg, lon_deg
-        use_api: If True, use Renewables.ninja API
+        api_source: API to use - 'nasa_power', 'renewables_ninja', or 'synthetic'
         max_sites: Maximum number of sites to fetch (for testing)
 
     Returns:
@@ -401,14 +587,14 @@ def fetch_all_sites(sites_df: pd.DataFrame, use_api: bool = True,
 
     results = {}
 
-    for _, row in tqdm(sites_df.iterrows(), total=len(sites_df), desc="Fetching site data"):
+    for _, row in tqdm(sites_df.iterrows(), total=len(sites_df), desc=f"Fetching from {api_source}"):
         site_id = int(row['site_id'])
         lat = row['lat_deg']
         lon = row['lon_deg']
 
-        results[site_id] = fetch_site_data(site_id, lat, lon, use_api=use_api)
+        results[site_id] = fetch_site_data(site_id, lat, lon, api_source=api_source)
 
-    print(f"Fetched data for {len(results)} sites")
+    print(f"Fetched data for {len(results)} sites from {api_source}")
 
     return results
 
