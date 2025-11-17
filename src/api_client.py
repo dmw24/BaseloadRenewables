@@ -132,61 +132,6 @@ class RenewablesNinjaClient:
 
         return cf_series
 
-    def fetch_wind_profile(self, lat: float, lon: float, year: int = SIMULATION_YEAR) -> pd.Series:
-        """
-        Fetch hourly wind capacity factors for a location.
-
-        Args:
-            lat: Latitude
-            lon: Longitude
-            year: Simulation year
-
-        Returns:
-            Series with 8760 hourly capacity factors
-        """
-        url = f"{API_BASE_URL}/data/wind"
-
-        params = {
-            'lat': lat,
-            'lon': lon,
-            'date_from': f'{year}-01-01',
-            'date_to': f'{year}-12-31',
-            'dataset': 'merra2',
-            'capacity': 1.0,  # 1 kW system -> returns capacity factor
-            'height': 100,  # Hub height in meters
-            'turbine': 'Vestas V110 2000',  # Representative modern turbine
-            'format': 'json'
-        }
-
-        data = self._make_request(url, params)
-
-        # Extract hourly values
-        cf_series = pd.Series(data['data']['electricity'])
-        cf_series.index = pd.to_datetime(cf_series.index)
-
-        # Ensure 8760 hours
-        if len(cf_series) != HOURS_PER_YEAR:
-            warnings.warn(f"Got {len(cf_series)} hours instead of {HOURS_PER_YEAR}")
-
-        return cf_series
-
-    def fetch_both_profiles(self, lat: float, lon: float, year: int = SIMULATION_YEAR) -> Tuple[pd.Series, pd.Series]:
-        """
-        Fetch both solar and wind profiles for a location.
-
-        Args:
-            lat: Latitude
-            lon: Longitude
-            year: Simulation year
-
-        Returns:
-            Tuple of (solar_cf, wind_cf) Series
-        """
-        solar_cf = self.fetch_solar_profile(lat, lon, year)
-        wind_cf = self.fetch_wind_profile(lat, lon, year)
-
-        return solar_cf, wind_cf
-
 
 class NASAPowerClient:
     """Client for NASA POWER API (no authentication required)."""
@@ -292,73 +237,6 @@ class NASAPowerClient:
         time_index = pd.date_range(start=f'{year}-01-01', periods=HOURS_PER_YEAR, freq='h')
         return pd.Series(cf_values, index=time_index, name='electricity')
 
-    def fetch_wind_profile(self, lat: float, lon: float, year: int = SIMULATION_YEAR) -> pd.Series:
-        """
-        Fetch hourly wind speed and convert to capacity factor.
-
-        Uses wind speed at 50m from NASA POWER, scaled to hub height.
-        """
-        params = {
-            'start': f'{year}0101',
-            'end': f'{year}1231',
-            'latitude': lat,
-            'longitude': lon,
-            'community': 'RE',
-            'parameters': 'WS50M',  # Wind speed at 50m in m/s
-            'format': 'JSON',
-            'time-standard': 'UTC'
-        }
-
-        data = self._make_request(params)
-
-        # Extract hourly wind speed values
-        ws_data = data['properties']['parameter']['WS50M']
-
-        ws_values = []
-        for date_hour, value in ws_data.items():
-            ws_values.append(value if value != -999 else 0)
-
-        ws_array = np.array(ws_values)
-
-        # Scale wind speed from 50m to 100m hub height using power law
-        # v2/v1 = (h2/h1)^alpha, alpha ≈ 0.14 for open terrain
-        ws_100m = ws_array * (100 / 50) ** 0.14
-
-        # Convert wind speed to capacity factor using typical power curve
-        # Cut-in: 3 m/s, Rated: 12 m/s, Cut-out: 25 m/s
-        cf_values = np.zeros_like(ws_100m)
-
-        # Below cut-in
-        mask_low = ws_100m < 3
-        cf_values[mask_low] = 0
-
-        # Cubic region (3-12 m/s)
-        mask_cubic = (ws_100m >= 3) & (ws_100m < 12)
-        cf_values[mask_cubic] = ((ws_100m[mask_cubic] - 3) / (12 - 3)) ** 3
-
-        # Rated power (12-25 m/s)
-        mask_rated = (ws_100m >= 12) & (ws_100m <= 25)
-        cf_values[mask_rated] = 1.0
-
-        # Above cut-out
-        mask_high = ws_100m > 25
-        cf_values[mask_high] = 0
-
-        # Ensure 8760 hours
-        if len(cf_values) > HOURS_PER_YEAR:
-            cf_values = cf_values[:HOURS_PER_YEAR]
-        elif len(cf_values) < HOURS_PER_YEAR:
-            cf_values = np.pad(cf_values, (0, HOURS_PER_YEAR - len(cf_values)))
-
-        time_index = pd.date_range(start=f'{year}-01-01', periods=HOURS_PER_YEAR, freq='h')
-        return pd.Series(cf_values, index=time_index, name='electricity')
-
-    def fetch_both_profiles(self, lat: float, lon: float, year: int = SIMULATION_YEAR) -> Tuple[pd.Series, pd.Series]:
-        """Fetch both solar and wind profiles."""
-        solar_cf = self.fetch_solar_profile(lat, lon, year)
-        wind_cf = self.fetch_wind_profile(lat, lon, year)
-        return solar_cf, wind_cf
-
 
 class SyntheticDataGenerator:
     """
@@ -431,74 +309,6 @@ class SyntheticDataGenerator:
 
         return pd.Series(cf_values, index=time_index, name='electricity')
 
-    def generate_wind_profile(self, lat: float, lon: float, year: int = SIMULATION_YEAR) -> pd.Series:
-        """
-        Generate synthetic wind capacity factors.
-
-        Models diurnal and seasonal patterns with stochastic variability.
-        """
-        hours = np.arange(HOURS_PER_YEAR)
-
-        # Base wind pattern - slight diurnal variation
-        hour_of_day = hours % 24
-        diurnal = 0.9 + 0.1 * np.sin(2 * np.pi * (hour_of_day - 6) / 24)
-
-        # Seasonal variation (stronger in winter)
-        day_of_year = hours // 24
-        seasonal = 0.85 + 0.15 * np.cos(2 * np.pi * (day_of_year - 15) / 365)
-
-        # Base capacity factor
-        base_cf = diurnal * seasonal
-
-        # Add significant stochastic variability (wind is more variable than solar)
-        # Use autocorrelated noise for realistic wind patterns
-        noise = np.zeros(HOURS_PER_YEAR)
-        noise[0] = self.rng.standard_normal()
-
-        # AR(1) process for temporal correlation
-        for i in range(1, HOURS_PER_YEAR):
-            noise[i] = 0.9 * noise[i-1] + 0.436 * self.rng.standard_normal()
-
-        # Transform to [0, 1] range roughly
-        noise = (noise - noise.min()) / (noise.max() - noise.min())
-
-        # Combine base pattern with noise
-        cf_values = 0.3 * base_cf + 0.7 * noise
-
-        # Scale to realistic average CF (0.25-0.45 typical)
-        # Coastal and high latitude areas tend to have higher wind CF
-        target_avg_cf = 0.30 + 0.10 * (abs(lat) / 90) + 0.05 * self.rng.random()
-        target_avg_cf = np.clip(target_avg_cf, 0.25, 0.45)
-
-        current_avg = np.mean(cf_values)
-        if current_avg > 0:
-            cf_values = cf_values * (target_avg_cf / current_avg)
-
-        # Clip to valid range
-        cf_values = np.clip(cf_values, 0, 1)
-
-        # Create time index
-        time_index = pd.date_range(start=f'{year}-01-01', periods=HOURS_PER_YEAR, freq='h')
-
-        return pd.Series(cf_values, index=time_index, name='electricity')
-
-    def generate_both_profiles(self, lat: float, lon: float, year: int = SIMULATION_YEAR) -> Tuple[pd.Series, pd.Series]:
-        """
-        Generate both solar and wind profiles.
-
-        Args:
-            lat: Latitude
-            lon: Longitude
-            year: Simulation year
-
-        Returns:
-            Tuple of (solar_cf, wind_cf) Series
-        """
-        solar_cf = self.generate_solar_profile(lat, lon, year)
-        wind_cf = self.generate_wind_profile(lat, lon, year)
-
-        return solar_cf, wind_cf
-
 
 def fetch_site_data(site_id: int, lat: float, lon: float,
                    api_source: str = 'nasa_power', cache: bool = True) -> pd.DataFrame:
@@ -513,7 +323,7 @@ def fetch_site_data(site_id: int, lat: float, lon: float,
         cache: If True, cache results locally
 
     Returns:
-        DataFrame with hour, cf_solar, cf_wind columns
+        DataFrame with hour, cf_solar columns
     """
     cache_path = RESOURCE_DIR / f"site_{site_id:03d}.parquet"
 
@@ -528,26 +338,26 @@ def fetch_site_data(site_id: int, lat: float, lon: float,
     if api_source == 'nasa_power':
         try:
             client = NASAPowerClient()
-            solar_cf, wind_cf = client.fetch_both_profiles(lat, lon)
+            solar_cf = client.fetch_solar_profile(lat, lon)
         except Exception as e:
             print(f"NASA POWER API failed: {e}. Falling back to synthetic data.")
             generator = SyntheticDataGenerator(seed=site_id)
-            solar_cf, wind_cf = generator.generate_both_profiles(lat, lon)
+            solar_cf = generator.generate_solar_profile(lat, lon)
 
     elif api_source == 'renewables_ninja':
         if not RENEWABLES_NINJA_TOKEN:
             raise ValueError("RENEWABLES_NINJA_TOKEN environment variable not set")
         try:
             client = RenewablesNinjaClient()
-            solar_cf, wind_cf = client.fetch_both_profiles(lat, lon)
+            solar_cf = client.fetch_solar_profile(lat, lon)
         except Exception as e:
             print(f"Renewables.ninja API failed: {e}. Falling back to synthetic data.")
             generator = SyntheticDataGenerator(seed=site_id)
-            solar_cf, wind_cf = generator.generate_both_profiles(lat, lon)
+            solar_cf = generator.generate_solar_profile(lat, lon)
 
     elif api_source == 'synthetic':
         generator = SyntheticDataGenerator(seed=site_id)
-        solar_cf, wind_cf = generator.generate_both_profiles(lat, lon)
+        solar_cf = generator.generate_solar_profile(lat, lon)
 
     else:
         raise ValueError(f"Unknown API source: {api_source}")
@@ -555,8 +365,7 @@ def fetch_site_data(site_id: int, lat: float, lon: float,
     # Create DataFrame
     df = pd.DataFrame({
         'hour': range(HOURS_PER_YEAR),
-        'cf_solar': solar_cf.values,
-        'cf_wind': wind_cf.values
+        'cf_solar': solar_cf.values
     })
 
     # Cache result
@@ -607,7 +416,7 @@ def load_site_resource(site_id: int) -> pd.DataFrame:
         site_id: Site identifier
 
     Returns:
-        DataFrame with hour, cf_solar, cf_wind columns
+        DataFrame with hour, cf_solar columns
     """
     cache_path = RESOURCE_DIR / f"site_{site_id:03d}.parquet"
 
@@ -633,16 +442,14 @@ if __name__ == "__main__":
     ]
 
     for lat, lon, name in test_locs:
-        solar_cf, wind_cf = gen.generate_both_profiles(lat, lon)
+        solar_cf = gen.generate_solar_profile(lat, lon)
         print(f"\n{name} (lat={lat:.1f}):")
         print(f"  Solar CF: avg={solar_cf.mean():.3f}, max={solar_cf.max():.3f}")
-        print(f"  Wind CF: avg={wind_cf.mean():.3f}, max={wind_cf.max():.3f}")
 
         # Save sample
         df = pd.DataFrame({
             'hour': range(HOURS_PER_YEAR),
-            'cf_solar': solar_cf.values,
-            'cf_wind': wind_cf.values
+            'cf_solar': solar_cf.values
         })
 
         sample_path = RESOURCE_DIR / f"sample_{name.lower().replace(' ', '_')}.parquet"

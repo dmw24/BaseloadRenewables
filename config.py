@@ -15,7 +15,7 @@ for dir_path in [SITES_DIR, RESOURCE_DIR, TIMESERIES_DIR, SUMMARY_DIR]:
     dir_path.mkdir(parents=True, exist_ok=True)
 
 # Site selection parameters
-NUM_SITES = 1000
+NUM_SITES = 10  # Testing with 10 sites
 GRID_RESOLUTION = 0.5  # degrees for initial land grid
 
 # API configuration (Renewables.ninja)
@@ -32,7 +32,6 @@ HOURS_PER_YEAR = 8760
 
 # Capacity configuration ranges
 SOLAR_CAPACITIES_GW = [1, 2, 3, 4, 5]
-WIND_CAPACITIES_GW = [1, 2, 3, 4, 5]
 BATTERY_CAPACITIES_GWH = list(range(1, 16))  # 1 to 15 GWh
 
 # Battery parameters

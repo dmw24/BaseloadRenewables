@@ -52,10 +52,9 @@ def process_single_site(
         return pd.DataFrame()
 
     cf_solar = resource_df['cf_solar'].values
-    cf_wind = resource_df['cf_wind'].values
 
     # Run simulations for all configurations
-    hourly_df, summary_df = simulate_site_configs(site_id, cf_solar, cf_wind, configs_df)
+    hourly_df, summary_df = simulate_site_configs(site_id, cf_solar, configs_df)
 
     # Save hourly data if requested
     if save_hourly:
@@ -281,12 +280,11 @@ if __name__ == "__main__":
         lat = row['lat_deg']
         lon = row['lon_deg']
 
-        solar_cf, wind_cf = gen.generate_both_profiles(lat, lon)
+        solar_cf = gen.generate_solar_profile(lat, lon)
 
         df = pd.DataFrame({
             'hour': range(8760),
-            'cf_solar': solar_cf.values,
-            'cf_wind': wind_cf.values
+            'cf_solar': solar_cf.values
         })
 
         cache_path = RESOURCE_DIR / f"site_{site_id:03d}.parquet"

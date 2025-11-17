@@ -4,7 +4,7 @@ Main orchestration script for Baseload Renewables Model.
 
 This script runs the complete pipeline:
 1. Select ~1000 global land sites
-2. Fetch renewable resource data (solar & wind capacity factors)
+2. Fetch renewable resource data (solar capacity factors)
 3. Generate capacity configurations
 4. Run dispatch simulations for all site-config pairs
 5. Save results (hourly and summary data)
@@ -72,7 +72,7 @@ def step_2_fetch_resource_data(sites_df, api_source: str = 'nasa_power',
     print(f"Using {api_source} API to fetch renewable resource data...")
     print(f"  API: {api_source}")
     print(f"  Sites to fetch: {target_sites}")
-    print(f"  This will make {target_sites * 2} API calls (solar + wind per site)")
+    print(f"  This will make {target_sites} API calls (solar per site)")
 
     fetch_all_sites(sites_df.head(target_sites) if max_sites else sites_df,
                    api_source=api_source)
@@ -153,7 +153,7 @@ def step_5_save_and_analyze(summary_df, sites_df):
     print(f"  Saved site statistics: {site_stats_path}")
 
     # Export aggregate configuration statistics
-    config_stats = summary_df.groupby(['C_solar_GW', 'C_wind_GW', 'E_bat_GWh']).agg({
+    config_stats = summary_df.groupby(['C_solar_GW', 'E_bat_GWh']).agg({
         'energy_served_frac': ['mean', 'std', 'min', 'max'],
         'hours_fully_served_frac': ['mean', 'std'],
         'avg_system_cf': 'mean',
@@ -183,7 +183,6 @@ def step_5_save_and_analyze(summary_df, sites_df):
     if not best_99.empty:
         print(f"  Sites meeting criteria: {len(best_99)}/{len(sites_df)}")
         print(f"  Mean solar capacity: {best_99['C_solar_GW'].mean():.2f} GW")
-        print(f"  Mean wind capacity: {best_99['C_wind_GW'].mean():.2f} GW")
         print(f"  Mean battery capacity: {best_99['E_bat_GWh'].mean():.2f} GWh")
     else:
         print("  No configurations meet 99% reliability")
@@ -194,7 +193,6 @@ def step_5_save_and_analyze(summary_df, sites_df):
     if not best_95.empty:
         print(f"  Sites meeting criteria: {len(best_95)}/{len(sites_df)}")
         print(f"  Mean solar capacity: {best_95['C_solar_GW'].mean():.2f} GW")
-        print(f"  Mean wind capacity: {best_95['C_wind_GW'].mean():.2f} GW")
         print(f"  Mean battery capacity: {best_95['E_bat_GWh'].mean():.2f} GWh")
 
     # Site statistics

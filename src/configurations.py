@@ -1,9 +1,8 @@
 """
-Capacity configuration generator for solar, wind, and battery systems.
+Capacity configuration generator for solar and battery systems.
 
 Generates all combinations of:
 - Solar: 1-5 GW
-- Wind: 1-5 GW
 - Battery: 1-15 GWh
 """
 import pandas as pd
@@ -15,7 +14,6 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from config import (
     SOLAR_CAPACITIES_GW,
-    WIND_CAPACITIES_GW,
     BATTERY_CAPACITIES_GWH,
     BATTERY_DURATION_HOURS,
     BATTERY_MAX_POWER_GW,
@@ -36,10 +34,10 @@ def generate_configurations() -> pd.DataFrame:
         DataFrame with all configuration parameters
     """
     # Create all combinations
-    configs = list(product(SOLAR_CAPACITIES_GW, WIND_CAPACITIES_GW, BATTERY_CAPACITIES_GWH))
+    configs = list(product(SOLAR_CAPACITIES_GW, BATTERY_CAPACITIES_GWH))
 
     # Build DataFrame
-    df = pd.DataFrame(configs, columns=['C_solar_GW', 'C_wind_GW', 'E_bat_GWh'])
+    df = pd.DataFrame(configs, columns=['C_solar_GW', 'E_bat_GWh'])
 
     # Add config_id
     df.insert(0, 'config_id', range(len(df)))
@@ -62,12 +60,11 @@ def generate_configurations() -> pd.DataFrame:
     # Add load
     df['L_GW'] = LOAD_GW
 
-    # Add total renewable capacity
-    df['C_total_GW'] = df['C_solar_GW'] + df['C_wind_GW']
+    # Add total renewable capacity (solar only)
+    df['C_total_GW'] = df['C_solar_GW']
 
     print(f"Generated {len(df)} configurations")
     print(f"Solar range: {df['C_solar_GW'].min()}-{df['C_solar_GW'].max()} GW")
-    print(f"Wind range: {df['C_wind_GW'].min()}-{df['C_wind_GW'].max()} GW")
     print(f"Battery range: {df['E_bat_GWh'].min()}-{df['E_bat_GWh'].max()} GWh")
     print(f"Battery power range: {df['P_bat_GW'].min():.2f}-{df['P_bat_GW'].max():.2f} GW")
 
@@ -139,22 +136,19 @@ def configuration_summary(configs_df: pd.DataFrame) -> pd.DataFrame:
         Summary DataFrame
     """
     summary = pd.DataFrame({
-        'parameter': ['C_solar_GW', 'C_wind_GW', 'E_bat_GWh', 'P_bat_GW'],
+        'parameter': ['C_solar_GW', 'E_bat_GWh', 'P_bat_GW'],
         'min': [
             configs_df['C_solar_GW'].min(),
-            configs_df['C_wind_GW'].min(),
             configs_df['E_bat_GWh'].min(),
             configs_df['P_bat_GW'].min()
         ],
         'max': [
             configs_df['C_solar_GW'].max(),
-            configs_df['C_wind_GW'].max(),
             configs_df['E_bat_GWh'].max(),
             configs_df['P_bat_GW'].max()
         ],
         'unique_values': [
             configs_df['C_solar_GW'].nunique(),
-            configs_df['C_wind_GW'].nunique(),
             configs_df['E_bat_GWh'].nunique(),
             configs_df['P_bat_GW'].nunique()
         ]
@@ -174,8 +168,8 @@ if __name__ == "__main__":
     print(configuration_summary(configs_df))
 
     print(f"\nTotal configurations: {len(configs_df)}")
-    print(f"Expected: {len(SOLAR_CAPACITIES_GW)} × {len(WIND_CAPACITIES_GW)} × {len(BATTERY_CAPACITIES_GWH)} = "
-          f"{len(SOLAR_CAPACITIES_GW) * len(WIND_CAPACITIES_GW) * len(BATTERY_CAPACITIES_GWH)}")
+    print(f"Expected: {len(SOLAR_CAPACITIES_GW)} × {len(BATTERY_CAPACITIES_GWH)} = "
+          f"{len(SOLAR_CAPACITIES_GW) * len(BATTERY_CAPACITIES_GWH)}")
 
     # Save configurations
     save_configurations(configs_df)
