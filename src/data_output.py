@@ -23,7 +23,6 @@ def create_hourly_output(
     config_id: int,
     hours: np.ndarray,
     G_solar: np.ndarray,
-    G_wind: np.ndarray,
     G_total: np.ndarray,
     P_ch: np.ndarray,
     P_dis: np.ndarray,
@@ -40,7 +39,6 @@ def create_hourly_output(
         config_id: Configuration identifier
         hours: Hour indices (0-8759)
         G_solar: Solar generation (GW)
-        G_wind: Wind generation (GW)
         G_total: Total generation (GW)
         P_ch: Charging power (GW)
         P_dis: Discharging power (GW)
@@ -57,7 +55,6 @@ def create_hourly_output(
         'config_id': config_id,
         'hour': hours,
         'G_solar_GW': G_solar,
-        'G_wind_GW': G_wind,
         'G_total_GW': G_total,
         'P_ch_GW': P_ch,
         'P_dis_GW': P_dis,
@@ -74,7 +71,6 @@ def create_summary_row(
     lon_deg: float,
     config_id: int,
     C_solar_GW: float,
-    C_wind_GW: float,
     E_bat_GWh: float,
     P_bat_GW: float,
     hours_fully_served_frac: float,
@@ -92,7 +88,6 @@ def create_summary_row(
         lon_deg: Longitude in degrees
         config_id: Configuration identifier
         C_solar_GW: Solar capacity (GW)
-        C_wind_GW: Wind capacity (GW)
         E_bat_GWh: Battery energy capacity (GWh)
         P_bat_GW: Battery power capacity (GW)
         hours_fully_served_frac: Fraction of hours fully served
@@ -110,7 +105,6 @@ def create_summary_row(
         'lon_deg': lon_deg,
         'config_id': config_id,
         'C_solar_GW': C_solar_GW,
-        'C_wind_GW': C_wind_GW,
         'E_bat_GWh': E_bat_GWh,
         'P_bat_GW': P_bat_GW,
         'hours_fully_served_frac': hours_fully_served_frac,
@@ -174,7 +168,6 @@ def aggregate_summary_statistics(summary_df: pd.DataFrame) -> pd.DataFrame:
     # Group by configuration
     config_stats = summary_df.groupby('config_id').agg({
         'C_solar_GW': 'first',
-        'C_wind_GW': 'first',
         'E_bat_GWh': 'first',
         'P_bat_GW': 'first',
         'hours_fully_served_frac': ['mean', 'std', 'min', 'max'],
@@ -213,8 +206,8 @@ def find_best_configurations(
         print(f"Warning: No configurations meet {min_energy_served:.1%} reliability threshold")
         return pd.DataFrame()
 
-    # Add total capacity column
-    reliable['total_capacity_GW'] = reliable['C_solar_GW'] + reliable['C_wind_GW']
+    # Add total capacity column (solar only)
+    reliable['total_capacity_GW'] = reliable['C_solar_GW']
 
     # Sort by criterion
     if sort_by == 'total_capacity':
@@ -329,7 +322,6 @@ if __name__ == "__main__":
         'lon_deg': [-0.1, -0.1, -0.1, 130.2, 130.2, 130.2],
         'config_id': [0, 1, 2, 0, 1, 2],
         'C_solar_GW': [1, 2, 3, 1, 2, 3],
-        'C_wind_GW': [1, 1, 1, 1, 1, 1],
         'E_bat_GWh': [1, 1, 1, 1, 1, 1],
         'P_bat_GW': [0.25, 0.25, 0.25, 0.25, 0.25, 0.25],
         'hours_fully_served_frac': [0.85, 0.92, 0.98, 0.88, 0.95, 0.99],

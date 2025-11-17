@@ -119,8 +119,8 @@ def plot_capacity_vs_reliability(summary_df: pd.DataFrame, output_path: Path = N
         output_path = DATA_DIR / "plots" / "capacity_vs_reliability.png"
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Calculate total capacity
-    summary_df['total_capacity_GW'] = summary_df['C_solar_GW'] + summary_df['C_wind_GW']
+    # Calculate total capacity (solar only)
+    summary_df['total_capacity_GW'] = summary_df['C_solar_GW']
 
     fig, axes = plt.subplots(2, 2, figsize=(16, 12))
 
@@ -152,23 +152,21 @@ def plot_capacity_vs_reliability(summary_df: pd.DataFrame, output_path: Path = N
     ax.legend()
     ax.grid(True, alpha=0.3)
 
-    # 3. Solar/wind ratio vs reliability
+    # 3. Solar capacity vs reliability
     ax = axes[1, 0]
-    summary_df['solar_fraction'] = summary_df['C_solar_GW'] / summary_df['total_capacity_GW']
-    scatter = ax.scatter(summary_df['solar_fraction'], summary_df['energy_served_frac'],
+    scatter = ax.scatter(summary_df['C_solar_GW'], summary_df['energy_served_frac'],
                         c=summary_df['E_bat_GWh'], s=10, alpha=0.3, cmap='viridis')
     cbar = plt.colorbar(scatter, ax=ax)
     cbar.set_label('Battery (GWh)')
-    ax.set_xlabel('Solar Fraction')
+    ax.set_xlabel('Solar Capacity (GW)')
     ax.set_ylabel('Energy Served Fraction')
-    ax.set_title('Solar/Wind Mix vs Reliability')
+    ax.set_title('Solar Capacity vs Reliability')
     ax.grid(True, alpha=0.3)
 
     # 4. Cost proxy analysis
     ax = axes[1, 1]
-    # Simplified cost proxy: $1000/kW solar, $1500/kW wind, $200/kWh battery
+    # Simplified cost proxy: $1000/kW solar, $200/kWh battery
     summary_df['cost_proxy_M$'] = (summary_df['C_solar_GW'] * 1000 +
-                                    summary_df['C_wind_GW'] * 1500 +
                                     summary_df['E_bat_GWh'] * 200)
     scatter = ax.scatter(summary_df['cost_proxy_M$'], summary_df['energy_served_frac'],
                         c=summary_df['total_capacity_GW'], s=10, alpha=0.3, cmap='plasma')
@@ -235,7 +233,7 @@ def plot_geographic_analysis(summary_df: pd.DataFrame, output_path: Path = None)
 
     # 2. Required capacity by latitude
     ax = axes[0, 1]
-    best_per_site['total_capacity'] = best_per_site['C_solar_GW'] + best_per_site['C_wind_GW']
+    best_per_site['total_capacity'] = best_per_site['C_solar_GW']
     scatter = ax.scatter(best_per_site['lat_deg'], best_per_site['total_capacity'],
                         c=best_per_site['energy_served_frac'],
                         s=30, cmap='RdYlGn', alpha=0.6)
@@ -299,7 +297,6 @@ def plot_pareto_frontier(summary_df: pd.DataFrame, output_path: Path = None) -> 
 
     # Calculate cost proxy
     summary_df['cost_proxy_M$'] = (summary_df['C_solar_GW'] * 1000 +
-                                    summary_df['C_wind_GW'] * 1500 +
                                     summary_df['E_bat_GWh'] * 200)
 
     fig, axes = plt.subplots(1, 2, figsize=(16, 6))
@@ -321,7 +318,7 @@ def plot_pareto_frontier(summary_df: pd.DataFrame, output_path: Path = None) -> 
 
     # 2. Average across all sites
     ax = axes[1]
-    config_avg = summary_df.groupby(['C_solar_GW', 'C_wind_GW', 'E_bat_GWh']).agg({
+    config_avg = summary_df.groupby(['C_solar_GW', 'E_bat_GWh']).agg({
         'energy_served_frac': 'mean',
         'cost_proxy_M$': 'first'
     }).reset_index().sort_values('cost_proxy_M$')
@@ -367,42 +364,31 @@ def plot_configuration_heatmap(summary_df: pd.DataFrame, output_path: Path = Non
     for idx, bat_size in enumerate(battery_sizes):
         data = summary_df[summary_df['E_bat_GWh'] == bat_size]
 
-        # Average across all sites
-        pivot = data.groupby(['C_solar_GW', 'C_wind_GW'])['energy_served_frac'].mean().reset_index()
-        pivot_table = pivot.pivot(index='C_wind_GW', columns='C_solar_GW', values='energy_served_frac')
+        # Average across all sites - now showing Solar vs Battery
+        pivot = data.groupby('C_solar_GW')['energy_served_frac'].mean().reset_index()
 
-        # Top row: Energy served
+        # Top row: Energy served by solar capacity
         ax = axes[0, idx]
-        im = ax.imshow(pivot_table, cmap='RdYlGn', aspect='auto', vmin=0, vmax=1)
+        ax.bar(pivot['C_solar_GW'], pivot['energy_served_frac'], color='green', alpha=0.7)
         ax.set_xlabel('Solar Capacity (GW)')
-        ax.set_ylabel('Wind Capacity (GW)')
+        ax.set_ylabel('Energy Served Fraction')
         ax.set_title(f'Energy Served - Battery: {bat_size} GWh')
-        ax.set_xticks(range(len(pivot_table.columns)))
-        ax.set_xticklabels(pivot_table.columns)
-        ax.set_yticks(range(len(pivot_table.index)))
-        ax.set_yticklabels(pivot_table.index)
-        plt.colorbar(im, ax=ax)
+        ax.set_ylim(0, 1)
+        ax.grid(True, alpha=0.3, axis='y')
 
-        # Add text annotations
-        for i in range(len(pivot_table.index)):
-            for j in range(len(pivot_table.columns)):
-                text = ax.text(j, i, f'{pivot_table.iloc[i, j]:.2f}',
-                             ha="center", va="center", color="black", fontsize=8)
+        # Add value labels on bars
+        for i, (solar, frac) in enumerate(zip(pivot['C_solar_GW'], pivot['energy_served_frac'])):
+            ax.text(solar, frac, f'{frac:.2f}', ha='center', va='bottom', fontsize=8)
 
-        # Bottom row: Curtailment
-        pivot_curt = data.groupby(['C_solar_GW', 'C_wind_GW'])['total_curtailed_GWh'].mean().reset_index()
-        pivot_table_curt = pivot_curt.pivot(index='C_wind_GW', columns='C_solar_GW', values='total_curtailed_GWh')
+        # Bottom row: Curtailment by solar capacity
+        pivot_curt = data.groupby('C_solar_GW')['total_curtailed_GWh'].mean().reset_index()
 
         ax = axes[1, idx]
-        im = ax.imshow(pivot_table_curt, cmap='YlOrRd', aspect='auto')
+        ax.bar(pivot_curt['C_solar_GW'], pivot_curt['total_curtailed_GWh'], color='red', alpha=0.7)
         ax.set_xlabel('Solar Capacity (GW)')
-        ax.set_ylabel('Wind Capacity (GW)')
-        ax.set_title(f'Curtailment (GWh/yr) - Battery: {bat_size} GWh')
-        ax.set_xticks(range(len(pivot_table_curt.columns)))
-        ax.set_xticklabels(pivot_table_curt.columns)
-        ax.set_yticks(range(len(pivot_table_curt.index)))
-        ax.set_yticklabels(pivot_table_curt.index)
-        plt.colorbar(im, ax=ax)
+        ax.set_ylabel('Curtailment (GWh/yr)')
+        ax.set_title(f'Curtailment - Battery: {bat_size} GWh')
+        ax.grid(True, alpha=0.3, axis='y')
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=150, bbox_inches='tight')

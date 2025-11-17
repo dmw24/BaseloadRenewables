@@ -1,7 +1,7 @@
 """
 Battery dispatch simulation engine.
 
-Simulates hourly dispatch of solar, wind, and battery storage
+Simulates hourly dispatch of solar and battery storage
 to meet a constant baseload demand.
 """
 import numpy as np
@@ -27,7 +27,6 @@ class DispatchResults:
     """Container for dispatch simulation results."""
     # Hourly arrays
     G_solar: np.ndarray       # Solar generation (GW)
-    G_wind: np.ndarray        # Wind generation (GW)
     G_total: np.ndarray       # Total generation (GW)
     P_charge: np.ndarray      # Battery charging power (GW)
     P_discharge: np.ndarray   # Battery discharging power (GW)
@@ -48,9 +47,7 @@ class DispatchResults:
 @jit(nopython=True)
 def simulate_dispatch_numba(
     cf_solar: np.ndarray,
-    cf_wind: np.ndarray,
     C_solar: float,
-    C_wind: float,
     E_bat: float,
     P_bat: float,
     L: float,
@@ -64,9 +61,7 @@ def simulate_dispatch_numba(
 
     Args:
         cf_solar: Hourly solar capacity factors
-        cf_wind: Hourly wind capacity factors
         C_solar: Solar nameplate capacity (GW)
-        C_wind: Wind nameplate capacity (GW)
         E_bat: Battery energy capacity (GWh)
         P_bat: Battery power limit (GW)
         L: Load (GW)
@@ -76,12 +71,11 @@ def simulate_dispatch_numba(
         n_hours: Number of hours to simulate
 
     Returns:
-        Tuple of arrays: (G_solar, G_wind, G_total, P_charge, P_discharge,
+        Tuple of arrays: (G_solar, G_total, P_charge, P_discharge,
                          SoC, P_served, P_unserved, P_curtailed)
     """
     # Initialize arrays
     G_solar = np.zeros(n_hours)
-    G_wind = np.zeros(n_hours)
     G_total = np.zeros(n_hours)
     P_charge = np.zeros(n_hours)
     P_discharge = np.zeros(n_hours)
@@ -95,10 +89,9 @@ def simulate_dispatch_numba(
 
     # Simulate each hour
     for t in range(n_hours):
-        # Compute renewable generation
+        # Compute solar generation
         G_solar[t] = cf_solar[t] * C_solar
-        G_wind[t] = cf_wind[t] * C_wind
-        G_total[t] = G_solar[t] + G_wind[t]
+        G_total[t] = G_solar[t]
 
         # Serve load from generation first
         served_from_gen = min(G_total[t], L)
@@ -138,15 +131,13 @@ def simulate_dispatch_numba(
         P_unserved[t] = max(0.0, L - P_served[t])
         P_curtailed[t] = max(0.0, G_total[t] - L - P_charge[t])
 
-    return (G_solar, G_wind, G_total, P_charge, P_discharge,
+    return (G_solar, G_total, P_charge, P_discharge,
             SoC[:-1], P_served, P_unserved, P_curtailed)
 
 
 def simulate_dispatch(
     cf_solar: np.ndarray,
-    cf_wind: np.ndarray,
     C_solar: float,
-    C_wind: float,
     E_bat: float,
     P_bat: float,
     L: float = LOAD_GW,
@@ -159,9 +150,7 @@ def simulate_dispatch(
 
     Args:
         cf_solar: Hourly solar capacity factors (8760 values)
-        cf_wind: Hourly wind capacity factors (8760 values)
         C_solar: Solar nameplate capacity (GW)
-        C_wind: Wind nameplate capacity (GW)
         E_bat: Battery energy capacity (GWh)
         P_bat: Battery power limit (GW)
         L: Load (GW)
@@ -174,7 +163,6 @@ def simulate_dispatch(
     """
     # Ensure numpy arrays
     cf_solar = np.asarray(cf_solar, dtype=np.float64)
-    cf_wind = np.asarray(cf_wind, dtype=np.float64)
 
     n_hours = len(cf_solar)
 
@@ -182,9 +170,9 @@ def simulate_dispatch(
     SoC_0 = initial_soc_frac * E_bat
 
     # Run optimized simulation
-    (G_solar, G_wind, G_total, P_charge, P_discharge,
+    (G_solar, G_total, P_charge, P_discharge,
      SoC, P_served, P_unserved, P_curtailed) = simulate_dispatch_numba(
-        cf_solar, cf_wind, C_solar, C_wind, E_bat, P_bat,
+        cf_solar, C_solar, E_bat, P_bat,
         L, eta_charge, eta_discharge, SoC_0, n_hours
     )
 
@@ -197,7 +185,7 @@ def simulate_dispatch(
     energy_served_frac = total_served / total_load
 
     total_generation = np.sum(G_total)
-    total_capacity = (C_solar + C_wind) * n_hours
+    total_capacity = C_solar * n_hours
     avg_system_cf = total_generation / total_capacity if total_capacity > 0 else 0
 
     total_curtailed_GWh = np.sum(P_curtailed)
@@ -205,7 +193,6 @@ def simulate_dispatch(
 
     return DispatchResults(
         G_solar=G_solar,
-        G_wind=G_wind,
         G_total=G_total,
         P_charge=P_charge,
         P_discharge=P_discharge,
@@ -225,7 +212,6 @@ def simulate_dispatch(
 def simulate_site_configs(
     site_id: int,
     cf_solar: np.ndarray,
-    cf_wind: np.ndarray,
     configs_df: pd.DataFrame
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
@@ -234,7 +220,6 @@ def simulate_site_configs(
     Args:
         site_id: Site identifier
         cf_solar: Hourly solar capacity factors
-        cf_wind: Hourly wind capacity factors
         configs_df: DataFrame with all configurations
 
     Returns:
@@ -249,9 +234,7 @@ def simulate_site_configs(
         # Run simulation
         results = simulate_dispatch(
             cf_solar=cf_solar,
-            cf_wind=cf_wind,
             C_solar=config['C_solar_GW'],
-            C_wind=config['C_wind_GW'],
             E_bat=config['E_bat_GWh'],
             P_bat=config['P_bat_GW'],
             L=config.get('L_GW', LOAD_GW),
@@ -266,7 +249,6 @@ def simulate_site_configs(
             'config_id': config_id,
             'hour': np.arange(len(results.G_solar)),
             'G_solar_GW': results.G_solar,
-            'G_wind_GW': results.G_wind,
             'G_total_GW': results.G_total,
             'P_ch_GW': results.P_charge,
             'P_dis_GW': results.P_discharge,
@@ -282,7 +264,6 @@ def simulate_site_configs(
             'site_id': site_id,
             'config_id': config_id,
             'C_solar_GW': config['C_solar_GW'],
-            'C_wind_GW': config['C_wind_GW'],
             'E_bat_GWh': config['E_bat_GWh'],
             'P_bat_GW': config['P_bat_GW'],
             'hours_fully_served_frac': results.hours_fully_served_frac,
@@ -312,7 +293,6 @@ def results_to_dataframe(results: DispatchResults) -> pd.DataFrame:
     return pd.DataFrame({
         'hour': np.arange(len(results.G_solar)),
         'G_solar_GW': results.G_solar,
-        'G_wind_GW': results.G_wind,
         'G_total_GW': results.G_total,
         'P_ch_GW': results.P_charge,
         'P_dis_GW': results.P_discharge,
@@ -340,24 +320,18 @@ if __name__ == "__main__":
     solar_noise = 0.7 + 0.3 * np.random.random(n_hours)
     cf_solar = solar_base * solar_noise * 0.25
 
-    # Simple wind profile
-    wind_noise = np.random.random(n_hours)
-    cf_wind = 0.15 + 0.35 * wind_noise
-
     # Test configuration
     C_solar = 3.0  # GW
-    C_wind = 2.0   # GW
     E_bat = 10.0   # GWh
     P_bat = 2.5    # GW
 
     print(f"\nConfiguration:")
     print(f"  Solar: {C_solar} GW")
-    print(f"  Wind: {C_wind} GW")
     print(f"  Battery: {E_bat} GWh / {P_bat} GW")
     print(f"  Load: {LOAD_GW} GW")
 
     # Run simulation
-    results = simulate_dispatch(cf_solar, cf_wind, C_solar, C_wind, E_bat, P_bat)
+    results = simulate_dispatch(cf_solar, C_solar, E_bat, P_bat)
 
     print(f"\nResults:")
     print(f"  Hours fully served: {results.hours_fully_served} ({results.hours_fully_served_frac:.2%})")
@@ -378,7 +352,7 @@ if __name__ == "__main__":
     configs_df = generate_configurations()
     sample_configs = configs_df.head(5)  # Just test first 5
 
-    hourly, summary = simulate_site_configs(0, cf_solar, cf_wind, sample_configs)
+    hourly, summary = simulate_site_configs(0, cf_solar, sample_configs)
 
     print(f"Hourly data shape: {hourly.shape}")
     print(f"Summary shape: {summary.shape}")
