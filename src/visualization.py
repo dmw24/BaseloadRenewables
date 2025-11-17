@@ -7,6 +7,8 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from pathlib import Path
 from typing import Optional, List
+import geopandas as gpd
+from shapely.geometry import Point
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -26,7 +28,7 @@ def setup_plotting_style():
 def plot_global_site_map(sites_df: pd.DataFrame, summary_df: pd.DataFrame = None,
                          output_path: Path = None) -> Path:
     """
-    Create a global map showing selected sites.
+    Create a global map showing selected sites with world coastlines.
 
     Args:
         sites_df: DataFrame with site coordinates
@@ -40,37 +42,62 @@ def plot_global_site_map(sites_df: pd.DataFrame, summary_df: pd.DataFrame = None
         output_path = DATA_DIR / "plots" / "global_site_map.png"
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    fig, ax = plt.subplots(figsize=(16, 10))
+    fig, ax = plt.subplots(figsize=(20, 12))
 
-    # Plot all sites
-    scatter = ax.scatter(sites_df['lon_deg'], sites_df['lat_deg'],
-                        c='blue', s=20, alpha=0.6, label='Selected Sites')
+    # Load world map
+    try:
+        world = gpd.read_file(gpd.datasets.get_path('naturalearth_lowres'))
+    except:
+        # Fallback: create simple world boundaries
+        from shapely.geometry import box
+        world = gpd.GeoDataFrame(geometry=[box(-180, -90, 180, 90)], crs="EPSG:4326")
+
+    # Plot world map
+    world.boundary.plot(ax=ax, linewidth=0.8, color='black', alpha=0.5)
+    world.plot(ax=ax, color='lightgray', edgecolor='black', linewidth=0.5, alpha=0.3)
 
     # If summary provided, color by performance
     if summary_df is not None:
         # Get best config per site
         best_per_site = summary_df.groupby('site_id').apply(
-            lambda x: x.loc[x['energy_served_frac'].idxmax()]
-        ).reset_index(drop=True)
+            lambda x: x.loc[x['energy_served_frac'].idxmax()],
+            include_groups=False
+        ).reset_index()
 
+        # Create color map
         scatter = ax.scatter(best_per_site['lon_deg'], best_per_site['lat_deg'],
                            c=best_per_site['energy_served_frac'],
-                           s=30, cmap='RdYlGn', vmin=0, vmax=1,
-                           edgecolors='black', linewidths=0.5,
-                           label='Best Config Performance')
-        cbar = plt.colorbar(scatter, ax=ax)
-        cbar.set_label('Max Energy Served Fraction', rotation=270, labelpad=20)
+                           s=60, cmap='RdYlGn', vmin=0, vmax=1,
+                           edgecolors='black', linewidths=1.0,
+                           alpha=0.8, zorder=5)
 
-    ax.set_xlabel('Longitude (degrees)')
-    ax.set_ylabel('Latitude (degrees)')
-    ax.set_title(f'Global Distribution of {len(sites_df)} Land Sites')
-    ax.grid(True, alpha=0.3)
+        cbar = plt.colorbar(scatter, ax=ax, fraction=0.03, pad=0.04)
+        cbar.set_label('Best Energy Served Fraction', rotation=270, labelpad=25, fontsize=12)
+        cbar.ax.tick_params(labelsize=10)
+    else:
+        # Plot all sites
+        ax.scatter(sites_df['lon_deg'], sites_df['lat_deg'],
+                  c='blue', s=40, alpha=0.6, edgecolors='black',
+                  linewidths=0.5, zorder=5, label='Selected Sites')
+        ax.legend(fontsize=12)
+
+    ax.set_xlabel('Longitude (degrees)', fontsize=14)
+    ax.set_ylabel('Latitude (degrees)', fontsize=14)
+    ax.set_title(f'Global Distribution of {len(sites_df)} Land-Based Sites for Baseload Renewable Energy',
+                fontsize=16, fontweight='bold', pad=20)
     ax.set_xlim(-180, 180)
     ax.set_ylim(-90, 90)
-    ax.legend()
+
+    # Add grid
+    ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
+
+    # Add tick marks
+    ax.set_xticks(range(-180, 181, 30))
+    ax.set_yticks(range(-90, 91, 30))
+    ax.tick_params(labelsize=10)
 
     plt.tight_layout()
-    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.savefig(output_path, dpi=200, bbox_inches='tight', facecolor='white')
     plt.close()
 
     print(f"Saved global site map to {output_path}")
@@ -162,7 +189,7 @@ def plot_capacity_vs_reliability(summary_df: pd.DataFrame, output_path: Path = N
 
 def plot_geographic_analysis(summary_df: pd.DataFrame, output_path: Path = None) -> Path:
     """
-    Plot geographic analysis of renewable potential.
+    Plot geographic analysis of renewable potential with world map background.
 
     Args:
         summary_df: Summary DataFrame with lat/lon
@@ -177,23 +204,34 @@ def plot_geographic_analysis(summary_df: pd.DataFrame, output_path: Path = None)
 
     # Get best performance per site
     best_per_site = summary_df.groupby('site_id').apply(
-        lambda x: x.loc[x['energy_served_frac'].idxmax()]
-    ).reset_index(drop=True)
+        lambda x: x.loc[x['energy_served_frac'].idxmax()],
+        include_groups=False
+    ).reset_index()
 
-    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+    # Load world map
+    try:
+        world = gpd.read_file(gpd.datasets.get_path('naturalearth_lowres'))
+    except:
+        from shapely.geometry import box
+        world = gpd.GeoDataFrame(geometry=[box(-180, -90, 180, 90)], crs="EPSG:4326")
+
+    fig, axes = plt.subplots(2, 2, figsize=(20, 14))
 
     # 1. Best energy served by location
     ax = axes[0, 0]
+    world.plot(ax=ax, color='lightgray', edgecolor='black', linewidth=0.3, alpha=0.3)
     scatter = ax.scatter(best_per_site['lon_deg'], best_per_site['lat_deg'],
                         c=best_per_site['energy_served_frac'],
-                        s=30, cmap='RdYlGn', vmin=0.5, vmax=1.0,
-                        edgecolors='black', linewidths=0.5)
+                        s=50, cmap='RdYlGn', vmin=0.5, vmax=1.0,
+                        edgecolors='black', linewidths=0.8, zorder=5)
     cbar = plt.colorbar(scatter, ax=ax)
-    cbar.set_label('Best Energy Served')
-    ax.set_xlabel('Longitude')
-    ax.set_ylabel('Latitude')
-    ax.set_title('Best Achievable Reliability by Location')
-    ax.grid(True, alpha=0.3)
+    cbar.set_label('Best Energy Served', fontsize=11)
+    ax.set_xlabel('Longitude', fontsize=12)
+    ax.set_ylabel('Latitude', fontsize=12)
+    ax.set_title('Best Achievable Reliability by Location', fontsize=13, fontweight='bold')
+    ax.grid(True, alpha=0.3, linestyle='--')
+    ax.set_xlim(-180, 180)
+    ax.set_ylim(-90, 90)
 
     # 2. Required capacity by latitude
     ax = axes[0, 1]
@@ -210,16 +248,19 @@ def plot_geographic_analysis(summary_df: pd.DataFrame, output_path: Path = None)
 
     # 3. Battery requirements by location
     ax = axes[1, 0]
+    world.plot(ax=ax, color='lightgray', edgecolor='black', linewidth=0.3, alpha=0.3)
     scatter = ax.scatter(best_per_site['lon_deg'], best_per_site['lat_deg'],
                         c=best_per_site['E_bat_GWh'],
-                        s=30, cmap='plasma',
-                        edgecolors='black', linewidths=0.5)
+                        s=50, cmap='plasma',
+                        edgecolors='black', linewidths=0.8, zorder=5)
     cbar = plt.colorbar(scatter, ax=ax)
-    cbar.set_label('Battery (GWh)')
-    ax.set_xlabel('Longitude')
-    ax.set_ylabel('Latitude')
-    ax.set_title('Battery Requirements by Location')
-    ax.grid(True, alpha=0.3)
+    cbar.set_label('Battery (GWh)', fontsize=11)
+    ax.set_xlabel('Longitude', fontsize=12)
+    ax.set_ylabel('Latitude', fontsize=12)
+    ax.set_title('Battery Requirements by Location', fontsize=13, fontweight='bold')
+    ax.grid(True, alpha=0.3, linestyle='--')
+    ax.set_xlim(-180, 180)
+    ax.set_ylim(-90, 90)
 
     # 4. Average system CF by latitude
     ax = axes[1, 1]
