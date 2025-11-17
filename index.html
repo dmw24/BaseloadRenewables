@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Global Energy System Performance Map</title>
+
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Leaflet.js for the map -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+     integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+     crossorigin=""/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+     crossorigin=""></script>
+
+    <!-- D3.js for the Voronoi heatmap -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+
+    <style>
+        /* Set a height for the map container */
+        #map { height: 75vh; }
+        /* Custom styles for Leaflet popups */
+        .leaflet-popup-content-wrapper {
+            background-color: #1f2937; /* bg-gray-800 */
+            color: #f3f4f6; /* text-gray-200 */
+            border-radius: 0.5rem;
+        }
+        .leaflet-popup-tip {
+            background: #1f2937;
+        }
+        .leaflet-popup-content {
+            margin: 12px 18px;
+        }
+        /* Style for sliders */
+        input[type=range] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 8px;
+            background: #4b5563; /* bg-gray-600 */
+            border-radius: 5px;
+            outline: none;
+            opacity: 0.7;
+            transition: opacity .2s;
+        }
+        input[type=range]:hover {
+            opacity: 1;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            background: #3b82f6; /* bg-blue-500 */
+            cursor: pointer;
+            border-radius: 50%;
+        }
+        input[type=range]::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            background: #3b82f6; /* bg-blue-500 */
+            cursor: pointer;
+            border-radius: 50%;
+        }
+        /* Legend Styles */
+        .legend {
+            padding: 10px 12px;
+            font-family: sans-serif;
+            background: rgba(31, 41, 55, 0.85);
+            color: #f3f4f6;
+            border-radius: 5px;
+            line-height: 20px;
+            box-shadow: 0 0 15px rgba(0,0,0,0.2);
+            width: 200px;
+        }
+        .legend-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+        }
+        /* Style for the Voronoi heatmap polygons */
+        .voronoi-cell {
+            stroke: rgba(255, 255, 255, 0.1); /* Lighter border for cells */
+            stroke-width: 0.5;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-200 font-sans">
+
+    <div class="container mx-auto p-4 md:p-6">
+        <header class="text-center mb-6">
+            <h1 class="text-3xl md:text-4xl font-bold text-white">Global Energy System Performance</h1>
+            <p class="text-gray-400 mt-2">Visualize system capacity factor based on system mix or LCOE.</p>
+        </header>
+
+        <!-- Controls Section -->
+        <div id="controls" class="bg-gray-800 p-6 rounded-lg shadow-lg mb-6">
+            <div id="upload-section">
+                <label for="csv-file" class="block mb-2 text-lg font-medium text-white">1. Upload your LCOE File</label>
+                <input type="file" id="csv-file" accept=".csv" class="block w-full text-sm text-gray-400
+                  file:mr-4 file:py-2 file:px-4
+                  file:rounded-full file:border-0
+                  file:text-sm file:font-semibold
+                  file:bg-blue-500 file:text-white
+                  hover:file:bg-blue-600 cursor-pointer"/>
+                <p id="status-message" class="text-gray-500 mt-2 text-sm">Please upload your file with LCOE data.</p>
+            </div>
+
+            <div id="sliders-section" class="mt-6 hidden">
+                 <h2 class="text-lg font-medium text-white mb-4">2. Select Visualization Mode</h2>
+                <div class="flex items-center space-x-6 mb-4 border-b border-gray-700 pb-4">
+                    <div>
+                        <input type="radio" id="mode-mix" name="vis-mode" value="mix" checked class="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500">
+                        <label for="mode-mix" class="ml-2">By System Mix</label>
+                    </div>
+                    <div>
+                        <input type="radio" id="mode-lcoe" name="vis-mode" value="lcoe" class="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500">
+                        <label for="mode-lcoe" class="ml-2">By Max LCOE</label>
+                    </div>
+                </div>
+
+                <!-- Sliders for "By System Mix" mode -->
+                <div id="mix-sliders-section">
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div>
+                            <label for="solar-slider" class="block mb-2 font-medium">Solar Capacity: <span id="solar-value" class="font-bold text-blue-400">1 GW</span></label>
+                            <input type="range" id="solar-slider" min="0" max="10" value="1" class="w-full">
+                        </div>
+                        <div>
+                            <label for="wind-slider" class="block mb-2 font-medium">Wind Capacity: <span id="wind-value" class="font-bold text-blue-400">0 GW</span></label>
+                            <input type="range" id="wind-slider" min="0" max="4" value="0" class="w-full">
+                        </div>
+                        <div>
+                            <label for="battery-slider" class="block mb-2 font-medium">Battery Capacity: <span id="battery-value" class="font-bold text-blue-400">0 GWh</span></label>
+                            <input type="range" id="battery-slider" min="0" max="15" value="0" class="w-full">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Slider for "By Max LCOE" mode -->
+                <div id="lcoe-slider-section" class="hidden">
+                     <div>
+                        <label for="lcoe-slider" class="block mb-2 font-medium">Max LCOE: <span id="lcoe-value" class="font-bold text-blue-400">$100 / MWh</span></label>
+                        <input type="range" id="lcoe-slider" min="20" max="200" value="100" class="w-full">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Map Container -->
+        <div id="map-container" class="bg-gray-800 rounded-lg shadow-lg overflow-hidden">
+            <div id="map"></div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', async () => {
+            let map;
+            let dispatchData = [];
+            let circlesLayer = L.layerGroup();
+            let voronoiLayer = L.svg();
+            let legend;
+            let worldGeoJSON;
+
+            try {
+                const response = await fetch('https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson');
+                worldGeoJSON = await response.json();
+            } catch (e) {
+                console.error("Could not load world GeoJSON data:", e);
+                document.getElementById('status-message').textContent = "Error: Could not load map landmass data. Please refresh.";
+                return;
+            }
+
+            map = L.map('map').setView([20, 0], 2);
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+                subdomains: 'abcd',
+                maxZoom: 19
+            }).addTo(map);
+
+            map.getPane('tilePane').style.zIndex = 200;
+            voronoiLayer.addTo(map);
+            circlesLayer.addTo(map);
+
+            const fileInput = document.getElementById('csv-file');
+            const solarSlider = document.getElementById('solar-slider');
+            const windSlider = document.getElementById('wind-slider');
+            const batterySlider = document.getElementById('battery-slider');
+            const lcoeSlider = document.getElementById('lcoe-slider');
+            const solarValueLabel = document.getElementById('solar-value');
+            const windValueLabel = document.getElementById('wind-value');
+            const batteryValueLabel = document.getElementById('battery-value');
+            const lcoeValueLabel = document.getElementById('lcoe-value');
+            const statusMessage = document.getElementById('status-message');
+            const slidersSection = document.getElementById('sliders-section');
+
+            const modeMixRadio = document.getElementById('mode-mix');
+            const modeLcoeRadio = document.getElementById('mode-lcoe');
+            const mixSlidersSection = document.getElementById('mix-sliders-section');
+            const lcoeSliderSection = document.getElementById('lcoe-slider-section');
+
+            function parseCSV(text) {
+                const lines = text.trim().split('\n');
+                if (lines.length < 2) return [];
+                const header = lines[0].split(',').map(h => h.trim());
+                const data = [];
+                for (let i = 1; i < lines.length; i++) {
+                    const values = lines[i].split(',');
+                    if (values.length !== header.length) continue;
+                    const entry = {};
+                    for (let j = 0; j < header.length; j++) {
+                        const value = values[j].trim();
+                        const numValue = parseFloat(value);
+                        entry[header[j]] = isNaN(numValue) || value === '' ? value : numValue;
+                    }
+                    data.push(entry);
+                }
+                return data;
+            }
+
+            fileInput.addEventListener('change', (event) => {
+                const file = event.target.files[0];
+                if (!file) return;
+                statusMessage.textContent = `Loading ${file.name}...`;
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const text = e.target.result;
+                        dispatchData = parseCSV(text);
+                        if (dispatchData.length > 0) {
+                            statusMessage.textContent = `Successfully loaded ${dispatchData.length} rows.`;
+                            slidersSection.classList.remove('hidden');
+                            updateMap();
+                            addLegend();
+                        } else {
+                            statusMessage.textContent = 'Failed to parse CSV or file is empty.';
+                        }
+                    } catch (err) {
+                        statusMessage.textContent = `Error processing file: ${err.message}`;
+                    }
+                };
+                reader.readAsText(file);
+            });
+
+            // --- Event Listeners for Mode Switching and Sliders ---
+            modeMixRadio.addEventListener('change', () => {
+                mixSlidersSection.classList.remove('hidden');
+                lcoeSliderSection.classList.add('hidden');
+                updateMap();
+            });
+            modeLcoeRadio.addEventListener('change', () => {
+                mixSlidersSection.classList.add('hidden');
+                lcoeSliderSection.classList.remove('hidden');
+                updateMap();
+            });
+
+            solarSlider.addEventListener('input', updateMap);
+            windSlider.addEventListener('input', updateMap);
+            batterySlider.addEventListener('input', updateMap);
+            lcoeSlider.addEventListener('input', updateMap);
+            map.on('moveend', updateMap);
+
+            function updateMap() {
+                if (dispatchData.length === 0 || !map || !worldGeoJSON) return;
+
+                circlesLayer.clearLayers();
+                d3.select(voronoiLayer._container).selectAll("*").remove();
+
+                let dataToDisplay;
+                const currentMode = document.querySelector('input[name="vis-mode"]:checked').value;
+
+                if (currentMode === 'mix') {
+                    solarValueLabel.textContent = `${solarSlider.value} GW`;
+                    windValueLabel.textContent = `${windSlider.value} GW`;
+                    batteryValueLabel.textContent = `${batterySlider.value} GWh`;
+                    const selectedSolar = parseInt(solarSlider.value);
+                    const selectedWind = parseInt(windSlider.value);
+                    const selectedBattery = parseInt(batterySlider.value);
+
+                    dataToDisplay = dispatchData.filter(row =>
+                        row.Solar_GW === selectedSolar &&
+                        row.Wind_GW === selectedWind &&
+                        row.Battery_GWh === selectedBattery
+                    );
+                    statusMessage.textContent = `Displaying ${dataToDisplay.length} locations for the selected mix.`;
+                } else { // LCOE mode
+                    const maxLcoe = parseInt(lcoeSlider.value);
+                    lcoeValueLabel.textContent = `$${maxLcoe} / MWh`;
+
+                    const allLocations = new Set(dispatchData.map(row => row.Location));
+                    const bestConfigs = new Map();
+
+                    // Initialize bestConfigs with placeholder for all locations
+                    allLocations.forEach(location => {
+                        bestConfigs.set(location, {
+                            Location: location,
+                            System_Capacity_Factor: 0, // Default to 0% CF
+                            LCOE_USD_per_MWh: 'N/A',   // Default to N/A LCOE
+                            Solar_GW: 'N/A',           // Default to N/A for mix
+                            Wind_GW: 'N/A',
+                            Battery_GWh: 'N/A'
+                        });
+                    });
+
+                    // Iterate through data to find valid configurations
+                    for (const row of dispatchData) {
+                        if (typeof row.LCOE_USD_per_MWh === 'number' && row.LCOE_USD_per_MWh <= maxLcoe) {
+                            const location = row.Location;
+                            // Update only if it's a better CF or if the current entry is a placeholder (N/A LCOE)
+                            const currentBest = bestConfigs.get(location);
+                            if (currentBest.LCOE_USD_per_MWh === 'N/A' || row.System_Capacity_Factor > currentBest.System_Capacity_Factor) {
+                                bestConfigs.set(location, row);
+                            }
+                        }
+                    }
+                    dataToDisplay = Array.from(bestConfigs.values());
+                    statusMessage.textContent = `Displaying best CF for ${dataToDisplay.length} locations under $${maxLcoe}/MWh (including N/A).`;
+                }
+
+
+                const mapPoints = [];
+                const associatedData = [];
+                dataToDisplay.forEach(row => {
+                    const { lat, lon } = parseLocation(row.Location);
+                    if (lat !== null && lon !== null) {
+                        const point = map.latLngToLayerPoint([lat, lon]);
+                        mapPoints.push([point.x, point.y]);
+                        associatedData.push(row);
+                    }
+                });
+
+                const svg = d3.select(voronoiLayer._container);
+                const transform = d3.geoTransform({point: function(x, y) {
+                    const point = map.latLngToLayerPoint(new L.LatLng(y, x));
+                    this.stream.point(point.x, point.y);
+                }});
+                const path = d3.geoPath().projection(transform);
+
+                svg.append("defs").append("clipPath").attr("id", "clip-land").append("path").datum(worldGeoJSON).attr("d", path);
+
+                if (mapPoints.length > 1) { // Ensure there's enough data for Delaunay/Voronoi
+                    const delaunay = d3.Delaunay.from(mapPoints);
+                    const mapSize = map.getSize();
+                    const buffer = Math.max(mapSize.x, mapSize.y);
+                    const voronoiBounds = [-buffer, -buffer, mapSize.x + buffer, mapSize.y + buffer];
+                    const voronoi = delaunay.voronoi(voronoiBounds);
+
+                    svg.append("g").attr("clip-path", "url(#clip-land)").selectAll("path")
+                       .data(mapPoints).enter().append("path")
+                       .attr("d", (d, i) => voronoi.renderCell(i))
+                       .style("fill", (d, i) => getColorForCF(associatedData[i].System_Capacity_Factor))
+                       .style("fill-opacity", 0.6).attr("class", "voronoi-cell");
+                } else if (mapPoints.length === 1) {
+                    // Handle case with only one point to avoid Delaunay error
+                    // Draw a single circle or small area for the point
+                    svg.append("g").attr("clip-path", "url(#clip-land)").append("circle")
+                       .attr("cx", mapPoints[0][0])
+                       .attr("cy", mapPoints[0][1])
+                       .attr("r", 10) // A small radius for visibility
+                       .style("fill", getColorForCF(associatedData[0].System_Capacity_Factor))
+                       .style("fill-opacity", 0.6)
+                       .attr("class", "voronoi-cell");
+                }
+
+
+                dataToDisplay.forEach(row => {
+                    const { lat, lon } = parseLocation(row.Location);
+                    if (lat === null || lon === null) return;
+                    const color = getColorForCF(row.System_Capacity_Factor);
+                    const circle = L.circleMarker([lat, lon], { radius: 2, weight: 0, fillColor: color, fillOpacity: 0.9 }).addTo(circlesLayer);
+
+                    let tooltipContent;
+                    if (currentMode === 'lcoe') {
+                        // Handle N/A for LCOE and mix components
+                        const displayLcoe = typeof row.LCOE_USD_per_MWh === 'number' ? `$${row.LCOE_USD_per_MWh.toFixed(2)}` : row.LCOE_USD_per_MWh;
+                        const displaySolar = typeof row.Solar_GW === 'number' ? `${row.Solar_GW} GW` : row.Solar_GW;
+                        const displayWind = typeof row.Wind_GW === 'number' ? `${row.Wind_GW} GW` : row.Wind_GW;
+                        const displayBattery = typeof row.Battery_GWh === 'number' ? `${row.Battery_GWh} GWh` : row.Battery_GWh;
+
+                        tooltipContent = `
+                            <div style="font-family: sans-serif; text-align: left;">
+                                <strong>Location:</strong> ${lat.toFixed(2)}, ${lon.toFixed(2)}<br>
+                                <hr style="margin: 3px 0; border-color: #4b5563;">
+                                <strong>Best CF:</strong> ${(row.System_Capacity_Factor * 100).toFixed(2)}%<br>
+                                <strong>LCOE:</strong> ${displayLcoe}<br>
+                                <hr style="margin: 3px 0; border-color: #4b5563;">
+                                <strong>Optimal Mix:</strong><br>
+                                &nbsp;&nbsp;Solar: ${displaySolar}<br>
+                                &nbsp;&nbsp;Wind: ${displayWind}<br>
+                                &nbsp;&nbsp;Battery: ${displayBattery}
+                            </div>`;
+                    } else {
+                         tooltipContent = `
+                            <div style="font-family: sans-serif;">
+                                <strong>Location:</strong> ${lat.toFixed(2)}, ${lon.toFixed(2)}<br>
+                                <strong>System CF:</strong> ${(row.System_Capacity_Factor * 100).toFixed(2)}%
+                            </div>`;
+                    }
+                    circle.bindTooltip(tooltipContent);
+                });
+            }
+
+            function parseLocation(locationString) {
+                if (typeof locationString !== 'string') return { lat: null, lon: null };
+                const parts = locationString.split('_');
+                if (parts.length !== 2) return { lat: null, lon: null };
+                try {
+                    const lat = parseFloat(parts[0].replace('Lat', ''));
+                    const lon = parseFloat(parts[1].replace('Lon', ''));
+                    return { lat, lon };
+                } catch (e) { return { lat: null, lon: null }; }
+            }
+
+            function getColorForCF(cf) {
+                const colors = [
+                    { p: 0.0,  color: { r: 0,   g: 0,   b: 255 } },   // Blue
+                    { p: 0.3,  color: { r: 0,   g: 255, b: 0 } },   // Green
+                    { p: 0.65, color: { r: 255, g: 165, b: 0 } },   // Orange
+                    { p: 0.8,  color: { r: 255, g: 0,   b: 0 } },   // Bright Red
+                    { p: 1.0,  color: { r: 139, g: 0,   b: 0 } }    // Darker Red
+                ];
+                if (cf <= 0) return `rgb(${colors[0].color.r}, ${colors[0].color.g}, ${colors[0].color.b})`;
+                if (cf >= 1) return `rgb(${colors[4].color.r}, ${colors[4].color.g}, ${colors[4].color.b})`;
+                let i = 1;
+                while (colors[i].p < cf) { i++; }
+                const lower = colors[i - 1];
+                const upper = colors[i];
+                const range = upper.p - lower.p;
+                const scale = (cf - lower.p) / range;
+                const r = Math.round(lower.color.r + scale * (upper.color.r - lower.color.r));
+                const g = Math.round(lower.color.g + scale * (upper.color.g - lower.color.g));
+                const b = Math.round(lower.color.b + scale * (upper.color.b - lower.color.b));
+                return `rgb(${r},${g},${b})`;
+            }
+
+            function addLegend() {
+                if (legend) map.removeControl(legend);
+                legend = L.control({position: 'bottomright'});
+                legend.onAdd = function (map) {
+                    const div = L.DomUtil.create('div', 'info legend');
+                    div.innerHTML = '<strong>System CF</strong>';
+                    const gradient = L.DomUtil.create('div', '', div);
+                    const gradientColors = [];
+                    for (let i = 0; i <= 100; i++) {
+                        gradientColors.push(getColorForCF(i / 100));
+                    }
+                    gradient.style.height = '20px';
+                    gradient.style.marginTop = '5px';
+                    gradient.style.marginBottom = '5px';
+                    gradient.style.width = '100%';
+                    gradient.style.background = `linear-gradient(to right, ${gradientColors.join(',')})`;
+                    gradient.style.borderRadius = '3px';
+                    const labels = L.DomUtil.create('div', 'legend-labels', div);
+                    labels.innerHTML = '<span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span>';
+                    return div;
+                };
+                legend.addTo(map);
+            }
+        });
+    </script>
+</body>
+</html>
