@@ -130,8 +130,40 @@ def step_5_save_and_analyze(summary_df, sites_df):
     print("STEP 5: Save Results and Analysis")
     print("="*60)
 
-    # Save summary
+    from src.visualization import generate_all_plots
+
+    # Save summary (Parquet and CSV)
     save_summary(summary_df)
+
+    # Export additional CSV files
+    print("\nExporting CSV files...")
+
+    # Export best configurations per site
+    best_per_site = summary_df.groupby('site_id').apply(
+        lambda x: x.loc[x['energy_served_frac'].idxmax()]
+    ).reset_index(drop=True)
+    best_csv_path = SUMMARY_DIR / "best_configurations_per_site.csv"
+    best_per_site.to_csv(best_csv_path, index=False)
+    print(f"  Saved best configurations: {best_csv_path}")
+
+    # Export site statistics
+    site_stats = calculate_site_statistics(summary_df)
+    site_stats_path = SUMMARY_DIR / "site_statistics.csv"
+    site_stats.to_csv(site_stats_path, index=False)
+    print(f"  Saved site statistics: {site_stats_path}")
+
+    # Export aggregate configuration statistics
+    config_stats = summary_df.groupby(['C_solar_GW', 'C_wind_GW', 'E_bat_GWh']).agg({
+        'energy_served_frac': ['mean', 'std', 'min', 'max'],
+        'hours_fully_served_frac': ['mean', 'std'],
+        'avg_system_cf': 'mean',
+        'total_curtailed_GWh': 'mean',
+        'total_unserved_GWh': 'mean'
+    }).reset_index()
+    config_stats.columns = ['_'.join(col).strip('_') for col in config_stats.columns]
+    config_stats_path = SUMMARY_DIR / "configuration_statistics.csv"
+    config_stats.to_csv(config_stats_path, index=False)
+    print(f"  Saved configuration statistics: {config_stats_path}")
 
     # Validate outputs
     print("\nValidating outputs...")
@@ -167,9 +199,16 @@ def step_5_save_and_analyze(summary_df, sites_df):
 
     # Site statistics
     print("\nSite-level statistics:")
-    site_stats = calculate_site_statistics(summary_df)
     print(f"  Mean max energy served: {site_stats['energy_served_frac_max'].mean():.2%}")
     print(f"  Mean avg system CF: {site_stats['avg_system_cf_mean'].mean():.2%}")
+
+    # Generate visualization plots
+    print("\n--- Generating Visualization Plots ---")
+    try:
+        plots = generate_all_plots(sites_df, summary_df)
+        print(f"Generated {len(plots)} visualization plots")
+    except Exception as e:
+        print(f"Warning: Could not generate all plots: {e}")
 
     return summary_df
 
