@@ -115,3 +115,56 @@ Edit `config.py` to adjust:
 ### Resource Data (in `data/resource/`)
 
 - `site_*.parquet`: Hourly capacity factors from NASA POWER API (8760 hours per site)
+
+## Interactive Web Visualization
+
+An interactive HTML frontend is available for exploring simulation results through a map-based interface.
+
+### Features
+
+- **Two Visualization Modes:**
+  - **By System Mix:** Filter locations by specific solar/wind/battery configurations
+  - **By Max LCOE:** View best-performing configurations under a specified LCOE threshold
+- **Voronoi Heatmap:** Smooth color-coded regions showing system capacity factor across the globe
+- **Interactive Tooltips:** Click markers to see detailed performance metrics and optimal configurations
+- **Color-Coded Legend:** Visual gradient from blue (0% CF) through green, orange, red to dark red (100% CF)
+- **Responsive Design:** Works on desktop and mobile devices
+
+### Usage
+
+1. **Open the visualization:**
+   ```bash
+   # Open index.html in your web browser
+   open index.html  # macOS
+   xdg-open index.html  # Linux
+   start index.html  # Windows
+   ```
+
+2. **Upload your data:**
+   - Click "Upload your LCOE File"
+   - Select `data/summary/summary.csv` from your simulation results
+
+3. **Explore the results:**
+   - **Mode 1 - By System Mix:**
+     - Use the sliders to select specific solar (0-10 GW), wind (0-4 GW), and battery (0-15 GWh) capacities
+     - The map updates to show system capacity factor for all locations with that configuration
+
+   - **Mode 2 - By Max LCOE:**
+     - Use the slider to set a maximum LCOE threshold ($20-200/MWh)
+     - The map shows the best capacity factor achievable at each location under that LCOE limit
+     - Tooltips reveal the optimal solar/wind/battery mix for each location
+
+4. **Interact with the map:**
+   - Zoom and pan to explore different regions
+   - Hover over markers to see detailed performance metrics
+   - The Voronoi heatmap provides a smooth visualization of performance gradients
+
+### Technical Details
+
+The frontend uses:
+- **Leaflet.js** for the interactive map with dark theme tiles
+- **D3.js** for Voronoi diagram generation clipped to land masses
+- **Tailwind CSS** for responsive styling
+- **GeoJSON** for world country boundaries (loaded from public dataset)
+
+The visualization runs entirely in the browser with no backend required.
