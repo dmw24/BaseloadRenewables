@@ -44,6 +44,9 @@ data/summary/*.parquet
 data/summary/*.csv
 data/configurations.parquet
 
+# Exception: Allow root-level summary.csv for GitHub Pages
+!summary.csv
+
 # Keep the directory structure
 !data/sites/.gitkeep
 !data/resource/.gitkeep
