@@ -202,6 +202,32 @@
             const mixSlidersSection = document.getElementById('mix-sliders-section');
             const lcoeSliderSection = document.getElementById('lcoe-slider-section');
 
+            // Auto-load summary.csv if available
+            async function autoLoadCSV() {
+                try {
+                    statusMessage.textContent = 'Loading data...';
+                    const response = await fetch('summary.csv');
+                    if (response.ok) {
+                        const text = await response.text();
+                        dispatchData = parseCSV(text);
+                        if (dispatchData.length > 0) {
+                            statusMessage.textContent = `Auto-loaded ${dispatchData.length} rows. Upload a different file to override.`;
+                            slidersSection.classList.remove('hidden');
+                            updateMap();
+                            addLegend();
+                            return true;
+                        }
+                    }
+                } catch (e) {
+                    console.log("Auto-load failed (expected if summary.csv not present):", e);
+                }
+                statusMessage.textContent = 'Please upload your file with LCOE data.';
+                return false;
+            }
+
+            // Try to auto-load data on page load
+            autoLoadCSV();
+
             function parseCSV(text) {
                 const lines = text.trim().split('\n');
                 if (lines.length < 2) return [];

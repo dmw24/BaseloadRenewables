@@ -118,7 +118,7 @@ Edit `config.py` to adjust:
 
 ## Interactive Web Visualization
 
-An interactive HTML frontend is available for exploring simulation results through a map-based interface.
+An interactive HTML frontend is available for exploring simulation results through a map-based interface. The visualization can be deployed to GitHub Pages for easy sharing and access.
 
 ### Features
 
@@ -168,3 +168,72 @@ The frontend uses:
 - **GeoJSON** for world country boundaries (loaded from public dataset)
 
 The visualization runs entirely in the browser with no backend required.
+
+### GitHub Pages Deployment
+
+Deploy the visualization to GitHub Pages for easy sharing:
+
+#### Initial Setup
+
+1. **Enable GitHub Pages** for your repository:
+   - Go to your repository settings on GitHub
+   - Navigate to **Pages** in the left sidebar
+   - Under **Source**, select **Deploy from a branch**
+   - Choose **main** branch and **/ (root)** folder
+   - Click **Save**
+
+2. **Update the data** (after running simulations):
+   ```bash
+   # Copy your simulation results to the root directory
+   cp data/summary/summary.csv ./summary.csv
+
+   # Add and commit the data
+   git add summary.csv
+   git commit -m "Update visualization data with latest simulation results"
+   git push
+   ```
+
+3. **Access your visualization**:
+   - Your site will be available at: `https://<username>.github.io/<repository-name>/`
+   - Example: `https://dmw24.github.io/BaseloadRenewables/`
+
+#### Updating Data
+
+The visualization automatically loads `summary.csv` from the repository root. To update:
+
+```bash
+# Run new simulations
+python main.py --max-sites 100
+
+# Replace the web data
+cp data/summary/summary.csv ./summary.csv
+
+# Commit and push
+git add summary.csv
+git commit -m "Update data: $(date +%Y-%m-%d)"
+git push
+```
+
+GitHub Pages will automatically rebuild and deploy within 1-2 minutes.
+
+#### Data Size Considerations
+
+- GitHub has a 100 MB file size limit
+- For large datasets (1000 sites × 375 configs = ~375,000 rows):
+  - The CSV file may be 20-50 MB (acceptable)
+  - If too large, filter to key configurations or sample sites
+  - Alternatively, use GitHub Large File Storage (LFS)
+
+#### Alternative: Local Deployment
+
+If you prefer local deployment without GitHub Pages:
+
+```bash
+# Simple Python HTTP server
+python -m http.server 8000
+
+# Or using Node.js
+npx http-server
+
+# Then open: http://localhost:8000
+```
