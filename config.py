@@ -15,7 +15,7 @@ for dir_path in [SITES_DIR, RESOURCE_DIR, TIMESERIES_DIR, SUMMARY_DIR]:
     dir_path.mkdir(parents=True, exist_ok=True)
 
 # Site selection parameters
-NUM_SITES = 10  # Testing with 10 sites
+NUM_SITES = 1000  # Full production run with 1000 globally distributed sites
 GRID_RESOLUTION = 0.5  # degrees for initial land grid
 
 # API configuration (Renewables.ninja)
