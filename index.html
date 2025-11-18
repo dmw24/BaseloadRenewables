@@ -124,14 +124,10 @@
 
                 <!-- Sliders for "By System Mix" mode -->
                 <div id="mix-sliders-section">
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div>
                             <label for="solar-slider" class="block mb-2 font-medium">Solar Capacity: <span id="solar-value" class="font-bold text-blue-400">1 GW</span></label>
                             <input type="range" id="solar-slider" min="0" max="10" value="1" class="w-full">
-                        </div>
-                        <div>
-                            <label for="wind-slider" class="block mb-2 font-medium">Wind Capacity: <span id="wind-value" class="font-bold text-blue-400">0 GW</span></label>
-                            <input type="range" id="wind-slider" min="0" max="4" value="0" class="w-full">
                         </div>
                         <div>
                             <label for="battery-slider" class="block mb-2 font-medium">Battery Capacity: <span id="battery-value" class="font-bold text-blue-400">0 GWh</span></label>
@@ -187,11 +183,9 @@
 
             const fileInput = document.getElementById('csv-file');
             const solarSlider = document.getElementById('solar-slider');
-            const windSlider = document.getElementById('wind-slider');
             const batterySlider = document.getElementById('battery-slider');
             const lcoeSlider = document.getElementById('lcoe-slider');
             const solarValueLabel = document.getElementById('solar-value');
-            const windValueLabel = document.getElementById('wind-value');
             const batteryValueLabel = document.getElementById('battery-value');
             const lcoeValueLabel = document.getElementById('lcoe-value');
             const statusMessage = document.getElementById('status-message');
@@ -284,7 +278,6 @@
             });
 
             solarSlider.addEventListener('input', updateMap);
-            windSlider.addEventListener('input', updateMap);
             batterySlider.addEventListener('input', updateMap);
             lcoeSlider.addEventListener('input', updateMap);
             map.on('moveend', updateMap);
@@ -300,15 +293,12 @@
 
                 if (currentMode === 'mix') {
                     solarValueLabel.textContent = `${solarSlider.value} GW`;
-                    windValueLabel.textContent = `${windSlider.value} GW`;
                     batteryValueLabel.textContent = `${batterySlider.value} GWh`;
                     const selectedSolar = parseInt(solarSlider.value);
-                    const selectedWind = parseInt(windSlider.value);
                     const selectedBattery = parseInt(batterySlider.value);
 
                     dataToDisplay = dispatchData.filter(row =>
                         row.Solar_GW === selectedSolar &&
-                        row.Wind_GW === selectedWind &&
                         row.Battery_GWh === selectedBattery
                     );
                     statusMessage.textContent = `Displaying ${dataToDisplay.length} locations for the selected mix.`;
@@ -326,7 +316,6 @@
                             System_Capacity_Factor: 0, // Default to 0% CF
                             LCOE_USD_per_MWh: 'N/A',   // Default to N/A LCOE
                             Solar_GW: 'N/A',           // Default to N/A for mix
-                            Wind_GW: 'N/A',
                             Battery_GWh: 'N/A'
                         });
                     });
@@ -403,7 +392,6 @@
                         // Handle N/A for LCOE and mix components
                         const displayLcoe = typeof row.LCOE_USD_per_MWh === 'number' ? `$${row.LCOE_USD_per_MWh.toFixed(2)}` : row.LCOE_USD_per_MWh;
                         const displaySolar = typeof row.Solar_GW === 'number' ? `${row.Solar_GW} GW` : row.Solar_GW;
-                        const displayWind = typeof row.Wind_GW === 'number' ? `${row.Wind_GW} GW` : row.Wind_GW;
                         const displayBattery = typeof row.Battery_GWh === 'number' ? `${row.Battery_GWh} GWh` : row.Battery_GWh;
 
                         tooltipContent = `
@@ -415,7 +403,6 @@
                                 <hr style="margin: 3px 0; border-color: #4b5563;">
                                 <strong>Optimal Mix:</strong><br>
                                 &nbsp;&nbsp;Solar: ${displaySolar}<br>
-                                &nbsp;&nbsp;Wind: ${displayWind}<br>
                                 &nbsp;&nbsp;Battery: ${displayBattery}
                             </div>`;
                     } else {
