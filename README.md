@@ -1,13 +1,13 @@
 # Baseload Renewables Model
 
-A global renewable energy baseload simulation model that analyzes solar, wind, and battery storage configurations across 1000+ land-based locations worldwide.
+A global renewable energy baseload simulation model that analyzes solar and battery storage configurations across 1000+ land-based locations worldwide.
 
 ## Overview
 
 This model:
 1. Selects ~1000 spatially-distributed land locations globally using k-means clustering
-2. Retrieves hourly solar and wind capacity factors from Renewables.ninja API
-3. Simulates 375 different capacity configurations (solar: 1-5 GW, wind: 1-5 GW, battery: 1-15 GWh)
+2. Retrieves hourly solar capacity factors from Renewables.ninja API
+3. Simulates 75 different capacity configurations (solar: 1-5 GW, battery: 1-15 GWh)
 4. Runs battery dispatch simulation to serve a constant 1 GW baseload
 5. Outputs hourly timeseries and summary statistics
 
@@ -40,22 +40,22 @@ BaseloadRenewables/
 
 ## Usage
 
-### Full Production Run (1000 sites, 375,000 simulations)
+### Full Production Run (1000 sites, 75,000 simulations)
 
 ```bash
-# Full run with 1000 sites (takes ~2-3 hours)
+# Full run with 1000 sites (takes ~1-2 hours)
 python main.py --workers 8
 
 # This will:
 # - Select 1000 globally distributed land sites
-# - Fetch 2000 API calls from NASA POWER (solar + wind per site)
-# - Run 375,000 simulations (1000 sites × 375 configurations)
+# - Fetch 1000 API calls from NASA POWER (solar per site)
+# - Run 75,000 simulations (1000 sites × 75 configurations)
 # - Generate CSV exports and visualization plots
 ```
 
-**Note:** The full run requires ~2-3 hours:
-- API calls: ~35 minutes (2000 calls @ 1 sec/call)
-- Simulations: ~10-15 minutes with 8 workers
+**Note:** The full run requires ~1-2 hours:
+- API calls: ~17 minutes (1000 calls @ 1 sec/call)
+- Simulations: ~5-10 minutes with 8 workers
 - Visualization: ~2-3 minutes
 
 ### Quick Demonstration (50 sites)
@@ -94,7 +94,7 @@ Edit `config.py` to adjust:
 
 ### CSV Files (in `data/summary/`)
 
-- `summary.csv`: Complete results for all 375,000 site-config pairs (18,750 rows for 50 sites)
+- `summary.csv`: Complete results for all 75,000 site-config pairs (3,750 rows for 50 sites)
 - `best_configurations_per_site.csv`: Best performing configuration for each site
 - `site_statistics.csv`: Aggregate statistics per site
 - `configuration_statistics.csv`: Average performance across all sites per configuration
@@ -110,7 +110,7 @@ Edit `config.py` to adjust:
 - `capacity_vs_reliability.png`: Analysis of capacity requirements vs reliability targets
 - `geographic_analysis.png`: Geographic patterns in renewable resource quality
 - `pareto_frontier.png`: Cost-reliability trade-off curves
-- `configuration_heatmap.png`: Performance heatmaps for different solar/wind/battery combinations
+- `configuration_heatmap.png`: Performance heatmaps for different solar/battery combinations
 
 ### Resource Data (in `data/resource/`)
 
@@ -123,7 +123,7 @@ An interactive HTML frontend is available for exploring simulation results throu
 ### Features
 
 - **Two Visualization Modes:**
-  - **By System Mix:** Filter locations by specific solar/wind/battery configurations
+  - **By System Mix:** Filter locations by specific solar/battery configurations
   - **By Max LCOE:** View best-performing configurations under a specified LCOE threshold
 - **Voronoi Heatmap:** Smooth color-coded regions showing system capacity factor across the globe
 - **Interactive Tooltips:** Click markers to see detailed performance metrics and optimal configurations
@@ -146,13 +146,13 @@ An interactive HTML frontend is available for exploring simulation results throu
 
 3. **Explore the results:**
    - **Mode 1 - By System Mix:**
-     - Use the sliders to select specific solar (0-10 GW), wind (0-4 GW), and battery (0-15 GWh) capacities
+     - Use the sliders to select specific solar (0-10 GW) and battery (0-15 GWh) capacities
      - The map updates to show system capacity factor for all locations with that configuration
 
    - **Mode 2 - By Max LCOE:**
      - Use the slider to set a maximum LCOE threshold ($20-200/MWh)
      - The map shows the best capacity factor achievable at each location under that LCOE limit
-     - Tooltips reveal the optimal solar/wind/battery mix for each location
+     - Tooltips reveal the optimal solar/battery mix for each location
 
 4. **Interact with the map:**
    - Zoom and pan to explore different regions
@@ -219,8 +219,8 @@ GitHub Pages will automatically rebuild and deploy within 1-2 minutes.
 #### Data Size Considerations
 
 - GitHub has a 100 MB file size limit
-- For large datasets (1000 sites × 375 configs = ~375,000 rows):
-  - The CSV file may be 20-50 MB (acceptable)
+- For large datasets (1000 sites × 75 configs = ~75,000 rows):
+  - The CSV file may be 10-20 MB (acceptable)
   - If too large, filter to key configurations or sample sites
   - Alternatively, use GitHub Large File Storage (LFS)
 
